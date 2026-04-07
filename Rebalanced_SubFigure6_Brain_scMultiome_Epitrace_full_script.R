@@ -1,4 +1,8 @@
-#/projectnb/ds596/students/jishan/Figure6_Brain_scMultiome_Epitrace_full_script.R
+# this script reproduces Fig 6c,d,e,f,g,h,i,j from the EpiTrace paper + a rebalancing experiment 
+
+# in the rebalancing experiment, EC/Peric. has only 31 cells but the cap is 350, 
+# leaving an ~11x imbalance against the smallest major type. 
+# Possible change is to lower the cap substantially (closer to 31–50) or explicitly exclude this cell type and note it.
 
 Sys.setenv(XML_CONFIG = "/share/pkg.8/libxml2/2.15.1/install/bin/xml2-config")
 pak::pkg_install('MagpiePKU/EpiTrace')
