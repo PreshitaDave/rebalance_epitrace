@@ -703,3 +703,47 @@ print(tree_plot_bal)
 dev.off()
 
 
+
+
+# ── Cell type counts: before vs after balancing ──────────────────────────
+
+ct_before <- as.data.frame(table(epitrace_obj_age_estimated_multiome$celltype),
+                           stringsAsFactors = FALSE)
+colnames(ct_before) <- c("celltype", "n_before")
+
+ct_after <- as.data.frame(table(epitrace_balanced$celltype),
+                          stringsAsFactors = FALSE)
+colnames(ct_after) <- c("celltype", "n_after")
+
+ct_comparison <- merge(ct_before, ct_after, by = "celltype", all = TRUE)
+ct_comparison$n_before[is.na(ct_comparison$n_before)] <- 0
+ct_comparison$n_after[is.na(ct_comparison$n_after)]   <- 0
+ct_comparison$cells_removed <- ct_comparison$n_before - ct_comparison$n_after
+ct_comparison$pct_retained  <- round(100 * ct_comparison$n_after / ct_comparison$n_before, 1)
+
+ct_comparison <- ct_comparison[order(-ct_comparison$n_before), ]
+
+print(ct_comparison, row.names = FALSE)
+
+# celltype n_before n_after cells_removed pct_retained
+# nIPC/GluN1     2348     350          1998         14.9
+# GluN2     1546     350          1196         22.6
+# IN1      959     350           609         36.5
+# GluN3      798     350           448         43.9
+# IN2      780     350           430         44.9
+# RG      646     350           296         54.2
+# GluN4      459     350           109         76.3
+# mGPC/OPC      359     350             9         97.5
+# Cyc. Prog.      341     341             0        100.0
+# IN3      301     301             0        100.0
+# GluN5      223     223             0        100.0
+# SP      190     190             0        100.0
+# EC/Peric.       31      31             0        100.0
+
+message(sprintf("Total before: %d", sum(ct_comparison$n_before)))
+message(sprintf("Total after : %d", sum(ct_comparison$n_after)))
+
+# Total before: 8981
+# Total after : 3886
+
+
