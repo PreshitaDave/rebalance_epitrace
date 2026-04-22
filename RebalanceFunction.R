@@ -17,6 +17,7 @@
 #   alpha in [0, 1] — strength of perturbation. Above 0.4 is extreme.
 #   alpha = 0 always returns the original distribution regardless of mode
 
+# GO TO LINE 89 TO SEE MAIN FUNCTION 
 
 # ── these functions tell you what happened (Internal) ───────────────────────────────────────────────────────
 
