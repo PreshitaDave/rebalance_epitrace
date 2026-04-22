@@ -1,13 +1,14 @@
 # EpiTrace Cell-Type Rebalancing 
 # (SEE FUNC USAGE in Rebalanced_SubFigure6_Brain_scMultiome_Epitrace_full_script.R in line 432)
 
+#  Modes:
 #   "down"  — Regime A  Pure downsampling. Majority classes lose cells.
 #                        Rare classes are untouched. Total N shrinks.
 #   "mixed" — Regime B  Convergence toward a geometric mean target.
 #                        Large classes shrink; small classes are duplicated
 #                        (with replacement) up to a moderate ceiling.
 #                        Total N stays close to original.
-#   "up"    — Regime C  Stress-test. All classes are upsampled toward the
+#   "up"    — Regime C  All classes are upsampled toward the
 #                        largest class size (with replacement). Rare classes
 #                        are heavily duplicated. Total N grows.
 #
@@ -73,7 +74,7 @@
   ifelse(targets > n_c, pmin(targets, cap), targets)
 }
 
-# Regime C — Full upsampling (stress test)
+# Regime C — Full upsampling 
 # target_c = n_c^(1-alpha) * n_max^alpha
 # alpha=0 → target_c = n_c
 # alpha=1 → target_c = n_max for all (inflate everything to largest class)
@@ -120,12 +121,12 @@
 #'   obj_down  <- resample_cells(epitrace_obj, alpha = 0.7, mode = "down")
 #'
 #'   # Regime B — converge toward geometric mean
-#'   obj_mixed <- resample_cells(epitrace_obj, alpha = 0.5, mode = "mixed")
+#'   obj_mixed <- resample_cells(epitrace_obj, alpha = 0.7, mode = "mixed")
 #'
-#'   # Regime C — inflate rare classes to stress-test EpiTrace
-#'   obj_up    <- resample_cells(epitrace_obj, alpha = 1.0, mode = "up")
+#'   # Regime C — inflate rare classes 
+#'   obj_up    <- resample_cells(epitrace_obj, alpha = 0.7, mode = "up")
 #'
-#'   # Drop-in replacement for the old cap=350 block:
+#'   USAGE:
 #'   epitrace_balanced <- resample_cells(
 #'     epitrace_obj_age_estimated_multiome,
 #'     alpha = 0.7,
