@@ -1,11 +1,4 @@
-# this script reproduces Fig 6c,d,e,f,g,h,i,j from the EpiTrace paper + a rebalancing experiment 
-
-# in the rebalancing experiment, EC/Peric. has only 31 cells but the cap is 350, 
-# leaving an ~11x imbalance against the smallest major type. 
-# Possible change is to lower the cap substantially (closer to 31–50) or explicitly exclude this cell type and note it.
-
-Sys.setenv(XML_CONFIG = "/share/pkg.8/libxml2/2.15.1/install/bin/xml2-config")
-pak::pkg_install('MagpiePKU/EpiTrace')
+# this script reproduces Fig 6c,d,e,f,g,h,i,j from the EpiTrace paper + cell type rebalancing tests at line 432
 
 
 library(Signac)
@@ -432,34 +425,16 @@ ratio <- max(ct_df$n) / min(ct_df$n)
 print(ct_df, row.names = FALSE)
 message(sprintf("Gini  : %.3f  (flag if > 0.4)", gini))
 message(sprintf("Ratio : %.1fx (flag if > 5x)",  ratio))
-# ======  added abovve code to check for imbalance data =========
+# ======  added above code to check for imbalance data =========
 
 rownames(epitrace_obj_age_estimated_multiome@meta.data) <- as.character(epitrace_obj_age_estimated_multiome$cell)
 
-# ── DOWNSAMPLE: insert after rownames(...) line, before rna_spliced assay ──
-
-set.seed(1234)
-
-cap <- 350  # just below the smallest mid-tier types; EC/Peric. (31) untouched
-
-cells_balanced <- unlist(lapply(unique(epitrace_obj_age_estimated_multiome$celltype), function(ct) {
-  bc <- rownames(epitrace_obj_age_estimated_multiome@meta.data)[
-    epitrace_obj_age_estimated_multiome$celltype == ct]
-  if (length(bc) > cap) sample(bc, cap) else bc
-}))
-
-epitrace_balanced <- subset(epitrace_obj_age_estimated_multiome, cells = cells_balanced)
-
-# Quick check — paste output here if you want to verify before proceeding
-ct_bal <- as.data.frame(table(epitrace_balanced$celltype), stringsAsFactors = FALSE)
-colnames(ct_bal) <- c("celltype", "n")
-ct_bal$pct <- round(100 * ct_bal$n / sum(ct_bal$n), 2)
-gini_bal   <- gini_coeff(ct_bal$n)
-ratio_bal  <- max(ct_bal$n) / min(ct_bal$n)
-print(ct_bal[order(-ct_bal$n), ], row.names = FALSE)
-message(sprintf("Gini after  : %.3f", gini_bal))
-message(sprintf("Ratio after : %.1fx", ratio_bal))
-
+# CELL TYPE BALANCING FUNC
+epitrace_balanced <- resample_cells(
+  epitrace_obj_age_estimated_multiome,
+  alpha = 0.4,
+  mode  = "down"
+)
 
 # ── RE-RUN EpiTrace on balanced dataset ────────────────────────────────────
 
@@ -725,25 +700,23 @@ ct_comparison <- ct_comparison[order(-ct_comparison$n_before), ]
 
 print(ct_comparison, row.names = FALSE)
 
-# celltype n_before n_after cells_removed pct_retained
-# nIPC/GluN1     2348     350          1998         14.9
-# GluN2     1546     350          1196         22.6
-# IN1      959     350           609         36.5
-# GluN3      798     350           448         43.9
-# IN2      780     350           430         44.9
-# RG      646     350           296         54.2
-# GluN4      459     350           109         76.3
-# mGPC/OPC      359     350             9         97.5
-# Cyc. Prog.      341     341             0        100.0
-# IN3      301     301             0        100.0
-# GluN5      223     223             0        100.0
-# SP      190     190             0        100.0
-# EC/Peric.       31      31             0        100.0
+ # celltype n_before n_after cells_removed pct_retained
+ # nIPC/GluN1     2348     416          1932         17.7
+ #      GluN2     1546     324          1222         21.0
+ #        IN1      959     243           716         25.3
+ #      GluN3      798     218           580         27.3
+ #        IN2      780     215           565         27.6
+ #         RG      646     192           454         29.7
+ #      GluN4      459     156           303         34.0
+ #   mGPC/OPC      359     135           224         37.6
+ # Cyc. Prog.      341     131           210         38.4
+ #        IN3      301     121           180         40.2
+ #      GluN5      223     101           122         45.3
+ #         SP      190      92            98         48.4
+ #  EC/Peric.       31      31             0        100.0
 
 message(sprintf("Total before: %d", sum(ct_comparison$n_before)))
 message(sprintf("Total after : %d", sum(ct_comparison$n_after)))
 
 # Total before: 8981
-# Total after : 3886
-
-
+# Total after : 2375
