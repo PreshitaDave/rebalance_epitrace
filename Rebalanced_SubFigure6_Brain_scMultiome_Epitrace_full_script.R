@@ -471,41 +471,45 @@ epitrace_obj_age_balanced <- EpiTraceAge_Convergence(
   iterative_time       = 10,
   normalization_method = "randomized"
 )
-# ── Attach 'all' assay to balanced EpiTrace object ───────────────────────────
 
-# new_bcs: the unique barcodes that EpiTraceAge_Convergence used as input
-# These are the colnames of mtx_balanced (which came from epitrace_balanced)
-new_bcs <- colnames(mtx_balanced)  # already unique; may contain _dup1 etc.
 
-# The EpiTrace output cell order may differ — match it
-etrace_bcs <- epitrace_obj_age_balanced$cell  # original cell IDs stored in metadata
 
-# Build an index from original cell ID -> column in mtx_balanced
-# (mtx_balanced cols are new unique barcodes; $cell col in meta_bal is original id)
-orig_ids_in_bal <- epitrace_balanced@meta.data$cell[
-  match(new_bcs, rownames(epitrace_balanced@meta.data))
+
+# Map each EpiTrace cell (new barcode) -> original cell ID via epitrace_balanced
+bal_lookup <- epitrace_balanced@meta.data[, c("cell", "original_cell")]
+
+etrace_cells_new <- rownames(epitrace_obj_age_balanced@meta.data)
+
+idx <- match(etrace_cells_new, colnames(mtx_balanced))
+message(sprintf("NAs in idx: %d / %d", sum(is.na(idx)), length(idx)))
+stopifnot(!any(is.na(idx)))
+
+# Diagnose what keys are actually available
+message("bal_lookup$cell sample: ", paste(head(bal_lookup$cell), collapse=", "))
+message("mtx_balanced colnames sample: ", paste(head(colnames(mtx_balanced)), collapse=", "))
+message("etrace_cells_new sample: ", paste(head(etrace_cells_new), collapse=", "))
+
+orig_ids <- bal_lookup$original_cell[
+  match(etrace_cells_new, rownames(epitrace_balanced@meta.data))
 ]
+message(sprintf("NAs in orig_ids: %d / %d", sum(is.na(orig_ids)), length(orig_ids)))
+stopifnot(!any(is.na(orig_ids)))
 
-# For the EpiTrace output, find which new_bc corresponds to each etrace cell
-idx <- match(etrace_bcs, orig_ids_in_bal)
+# If still NA, try rownames of epitrace_balanced
+if (any(is.na(orig_ids))) {
+  orig_ids2 <- bal_lookup$original_cell[match(etrace_cells_new, rownames(epitrace_balanced@meta.data))]
+  message(sprintf("NAs via rownames match: %d / %d", sum(is.na(orig_ids2)), length(orig_ids2)))
+}
+
+# If still NA, try matching via mtx_balanced column names at idx positions
+if (any(is.na(orig_ids))) {
+  orig_ids3 <- bal_lookup$original_cell[match(colnames(mtx_balanced)[idx], rownames(epitrace_balanced@meta.data))]
+  message(sprintf("NAs via rownames+idx match: %d / %d", sum(is.na(orig_ids3)), length(orig_ids3)))
+}
+epitrace_obj_age_balanced$original_cell <- orig_ids
 
 mtx_for_assay           <- mtx_balanced[, idx, drop = FALSE]
-colnames(mtx_for_assay) <- rownames(epitrace_obj_age_balanced@meta.data)
-
-# ── Attach 'all' assay to balanced EpiTrace object ───────────────────────────
-
-new_bcs <- colnames(mtx_balanced)
-
-etrace_bcs <- epitrace_obj_age_balanced$cell
-
-orig_ids_in_bal <- epitrace_balanced@meta.data$cell[
-  match(new_bcs, rownames(epitrace_balanced@meta.data))
-]
-
-idx <- match(etrace_bcs, orig_ids_in_bal)
-
-mtx_for_assay           <- mtx_balanced[, idx, drop = FALSE]
-colnames(mtx_for_assay) <- rownames(epitrace_obj_age_balanced@meta.data)
+colnames(mtx_for_assay) <- etrace_cells_new
 
 epitrace_obj_age_balanced[["all"]] <- Seurat::CreateAssayObject(
   counts       = mtx_for_assay,
@@ -515,13 +519,12 @@ epitrace_obj_age_balanced[["all"]] <- Seurat::CreateAssayObject(
 )
 DefaultAssay(epitrace_obj_age_balanced) <- "all"
 
-# ── Attach RNA assay ─────────────────────────────────────────────────────────
+# ── Attach RNA assay ──────────────────────────────────────────────────────────
 
-# rna_spliced columns are new unique barcodes — subset to only those
-# that ended up in the EpiTrace output
+
 rna_mtx           <- GetAssayData(epitrace_balanced, assay = "rna_spliced", layer = "counts")
 rna_mtx_sub       <- rna_mtx[, idx, drop = FALSE]
-colnames(rna_mtx_sub) <- rownames(epitrace_obj_age_balanced@meta.data)
+colnames(rna_mtx_sub) <- etrace_cells_new
 
 epitrace_obj_age_balanced[["rna_spliced"]] <- Seurat::CreateAssayObject(
   counts       = rna_mtx_sub,
@@ -535,48 +538,37 @@ message(sprintf("Balanced EpiTrace done: %d cells", ncol(epitrace_obj_age_balanc
 
 # ── Recover metadata columns lost during resampling/EpiTrace pipeline ────────
 
-# Fix celltype on the ORIGINAL object first (was "unlabeled" due to bad join)
+# ── Recover metadata using original_cell as the key ─────────────────────────
+
+orig_ids <- epitrace_obj_age_balanced$original_cell
+
+epitrace_obj_age_balanced$celltype <-
+  cell_meta$celltype[match(orig_ids, cell_meta$cell)]
+
+epitrace_obj_age_balanced$seurat_clusters <-
+  epitrace_obj_age_estimated_multiome@meta.data$seurat_clusters[
+    match(orig_ids, epitrace_obj_age_estimated_multiome$cell)]
+
+epitrace_obj_age_balanced$Cluster.Name <-
+  epitrace_obj_age_estimated_multiome@meta.data$Cluster.Name[
+    match(orig_ids, epitrace_obj_age_estimated_multiome$cell)]
+
+epitrace_obj_age_balanced$cytotrace_rna <-
+  epitrace_obj_age_estimated_multiome@meta.data$cytotrace_rna[
+    match(orig_ids, epitrace_obj_age_estimated_multiome$cell)]
+
+message("Balanced celltype check:")
+print(table(epitrace_obj_age_balanced$celltype, useNA = "always"))
+# Should now show 15062 cells with 0 NAs
+
+# Also fix original object celltype from source of truth
 epitrace_obj_age_estimated_multiome$celltype <-
-  cell_meta$celltype[
-    match(epitrace_obj_age_estimated_multiome$cell, cell_meta$cell)
-  ]
-message("Original celltype check: ")
+  cell_meta$celltype[match(epitrace_obj_age_estimated_multiome$cell, cell_meta$cell)]
+
+message("Original celltype check:")
 print(table(epitrace_obj_age_estimated_multiome$celltype, useNA = "always"))
 
-# Now recover all missing columns for the balanced object from original metadata
-orig_meta_full <- epitrace_obj_age_estimated_multiome@meta.data
-missing_cols <- setdiff(colnames(orig_meta_full),
-                        colnames(epitrace_obj_age_balanced@meta.data))
-missing_cols_with_key <- c("cell", missing_cols)
-
-recovered <- orig_meta_full[
-  match(epitrace_obj_age_balanced$cell, orig_meta_full$cell),
-  missing_cols_with_key, drop = FALSE]
-
-for (col in missing_cols) {
-  epitrace_obj_age_balanced@meta.data[[col]] <- recovered[[col]]
-}
-
-# Fix celltype on balanced object directly from cell_meta (source of truth)
-epitrace_obj_age_balanced$celltype <-
-  cell_meta$celltype[
-    match(epitrace_obj_age_balanced$cell, cell_meta$cell)
-  ]
-message("Balanced celltype check: ")
-print(table(epitrace_obj_age_balanced$celltype, useNA = "always"))
-
-message("Recovered columns: ", paste(missing_cols, collapse = ", "))
-
-DefaultAssay(epitrace_obj_age_balanced) <- "rna_spliced"
-epitrace_obj_age_balanced <- NormalizeData(epitrace_obj_age_balanced)
-epitrace_obj_age_balanced <- ScaleData(epitrace_obj_age_balanced)
-
 # ── Recompute CytoTRACE on balanced RNA ──────────────────────────────────────
-# CHANGE FROM ORIGINAL: the old code did:
-#   tt1_bal$cytotrace_rna <- epitrace_obj_age_estimated_multiome@meta.data[
-#     match(tt1_bal$cell, ...), "cytotrace_rna"]
-# which just borrows scores computed on the full unbalanced RNA.
-# Now we recompute from the balanced normalised RNA matrix.
 
 rna_balanced_norm <- GetAssayData(
   epitrace_obj_age_balanced, assay = "rna_spliced", layer = "data"
