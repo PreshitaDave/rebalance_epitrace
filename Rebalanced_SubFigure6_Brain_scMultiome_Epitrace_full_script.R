@@ -1,6 +1,5 @@
 # this script reproduces Fig 6c,d,e,f,g,h,i,j from the EpiTrace paper + a rebalancing experiment 
 
-# USAGE OF REBALANCE FUNCTION AT LINE 442 
 
 library(Signac)
 library(Seurat)
@@ -442,8 +441,8 @@ print(class(epitrace_obj_age_estimated_multiome$celltype))
 
 epitrace_balanced <- resample_cells(
   epitrace_obj_age_estimated_multiome,
-  alpha = 0.4,
-  mode  = "down", 
+  alpha = 0.5,
+  mode  = "up", 
   cap_multiplier = 4
 )
 
@@ -533,7 +532,40 @@ epitrace_obj_age_balanced[["rna_spliced"]] <- Seurat::CreateAssayObject(
 
 message(sprintf("Balanced EpiTrace done: %d cells", ncol(epitrace_obj_age_balanced)))
 
-# ── Re-normalise RNA on balanced cells ──────────────────────────────────────
+
+# ── Recover metadata columns lost during resampling/EpiTrace pipeline ────────
+
+# Fix celltype on the ORIGINAL object first (was "unlabeled" due to bad join)
+epitrace_obj_age_estimated_multiome$celltype <-
+  cell_meta$celltype[
+    match(epitrace_obj_age_estimated_multiome$cell, cell_meta$cell)
+  ]
+message("Original celltype check: ")
+print(table(epitrace_obj_age_estimated_multiome$celltype, useNA = "always"))
+
+# Now recover all missing columns for the balanced object from original metadata
+orig_meta_full <- epitrace_obj_age_estimated_multiome@meta.data
+missing_cols <- setdiff(colnames(orig_meta_full),
+                        colnames(epitrace_obj_age_balanced@meta.data))
+missing_cols_with_key <- c("cell", missing_cols)
+
+recovered <- orig_meta_full[
+  match(epitrace_obj_age_balanced$cell, orig_meta_full$cell),
+  missing_cols_with_key, drop = FALSE]
+
+for (col in missing_cols) {
+  epitrace_obj_age_balanced@meta.data[[col]] <- recovered[[col]]
+}
+
+# Fix celltype on balanced object directly from cell_meta (source of truth)
+epitrace_obj_age_balanced$celltype <-
+  cell_meta$celltype[
+    match(epitrace_obj_age_balanced$cell, cell_meta$cell)
+  ]
+message("Balanced celltype check: ")
+print(table(epitrace_obj_age_balanced$celltype, useNA = "always"))
+
+message("Recovered columns: ", paste(missing_cols, collapse = ", "))
 
 DefaultAssay(epitrace_obj_age_balanced) <- "rna_spliced"
 epitrace_obj_age_balanced <- NormalizeData(epitrace_obj_age_balanced)
