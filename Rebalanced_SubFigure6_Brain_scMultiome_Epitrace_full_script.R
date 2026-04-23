@@ -1,5 +1,4 @@
 # this script reproduces Fig 6c,d,e,f,g,h,i,j from the EpiTrace paper + a rebalancing experiment 
-# USAGE OF REBALANCE FUNCTION AT LINE 440 
 
 
 library(Signac)
@@ -351,9 +350,9 @@ dev.off()
 # Check celltype values match exactly
 print(unique(epitrace_obj_age_estimated_multiome$celltype))
 
-#: convert to factor first
-epitrace_obj_age_estimated_multiome$celltype <- factor(epitrace_obj_age_estimated_multiome$celltype)
-print(levels(epitrace_obj_age_estimated_multiome$celltype))
+# turned this to comments 4/23:
+# epitrace_obj_age_estimated_multiome$celltype <- factor(epitrace_obj_age_estimated_multiome$celltype)
+# print(levels(epitrace_obj_age_estimated_multiome$celltype))
 
 # Figure 6i
 brain_meta <- epitrace_obj_age_estimated_multiome@meta.data
@@ -429,20 +428,24 @@ message(sprintf("Gini  : %.3f  (flag if > 0.4)", gini))
 message(sprintf("Ratio : %.1fx (flag if > 5x)",  ratio))
 
 # ── Fix rownames so resample_cells() can use them as barcodes ───────────────
-# CHANGE FROM ORIGINAL: this line was already present but placed later;
-# it must come BEFORE resample_cells() is called.
 
 rownames(epitrace_obj_age_estimated_multiome@meta.data) <-
   as.character(epitrace_obj_age_estimated_multiome$cell)
+
+epitrace_obj_age_estimated_multiome$celltype <-
+  as.character(epitrace_obj_age_estimated_multiome$celltype)
 
 # ── Balance ATAC + RNA together ──────────────────────────────────────────────
 
 epitrace_balanced <- resample_cells(
   epitrace_obj_age_estimated_multiome,
   alpha = 0.9,
-  mode  = "mixed", 
-  cap_multiplier = 8
+  mode  = "up", 
+  cap_multiplier = 4
 )
+
+table(epitrace_balanced$celltype)
+
 
 cells_keep <- epitrace_balanced$cell
 
@@ -502,6 +505,11 @@ epitrace_obj_age_balanced <- NormalizeData(epitrace_obj_age_balanced)
 epitrace_obj_age_balanced <- ScaleData(epitrace_obj_age_balanced)
 
 # ── Recompute CytoTRACE on balanced RNA ──────────────────────────────────────
+# CHANGE FROM ORIGINAL: the old code did:
+#   tt1_bal$cytotrace_rna <- epitrace_obj_age_estimated_multiome@meta.data[
+#     match(tt1_bal$cell, ...), "cytotrace_rna"]
+# which just borrows scores computed on the full unbalanced RNA.
+# Now we recompute from the balanced normalised RNA matrix.
 
 rna_balanced_norm <- GetAssayData(
   epitrace_obj_age_balanced, assay = "rna_spliced", layer = "data"
