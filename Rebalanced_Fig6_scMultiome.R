@@ -1,4 +1,4 @@
-# this script reproduces Fig 6c,d,e,f,g,h,i,j from the EpiTrace paper + a rebalancing experiment 
+# this script reproduces Fig 6c,d,e,f,g,h,i,j from the EpiTrace paper + a rebalancing experiment at line 442 
 # CELL REBALANCE FUNCTION USAGE AT LINE 442 (LOAD IN FUNCTION FROM RebalanceFunction.R)
 
 library(Signac)
