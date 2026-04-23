@@ -1,6 +1,8 @@
 # ============================================================================
 # EpiTrace Cell-Type Rebalancing 
 # USAGE OF FUNCTION IN Rebalanced_SubFigure6_Brain_scMultiome_Epitrace_full_script.R LINE 440 
+
+
 # Regimes :
 #   "down"  — Regime A  Pure downsampling. Majority classes lose cells.
 #                        Rare classes are untouched. Total N shrinks.
@@ -96,8 +98,9 @@ resample_cells <- function(seurat_obj,
   
   set.seed(seed)
   
-  meta      <- seurat_obj@meta.data
-  celltypes <- as.character(meta[[celltype_col]])
+  meta                    <- seurat_obj@meta.data
+  meta[[celltype_col]]    <- as.character(meta[[celltype_col]])
+  celltypes               <- meta[[celltype_col]]
   all_bcs   <- rownames(meta)
   
   ct_tab  <- table(celltypes)
@@ -131,6 +134,9 @@ resample_cells <- function(seurat_obj,
       gap   <- tgt - length(pool)
       extra <- sample(pool, size = gap, replace = TRUE)
       
+      # FIX 1: dup_counter is a plain list — no rlang %||% needed.
+      # FIX 2: counter starts at 1L directly; avoids 0L + 1L arithmetic
+      #         that produced NA when the list lookup returned NULL.
       dup_counter <- list()
       extra_new   <- character(gap)  # new unique barcodes for duplicates
       extra_orig  <- character(gap)  # corresponding original barcodes
@@ -144,7 +150,14 @@ resample_cells <- function(seurat_obj,
         extra_orig[j] <- src                              # original source
       }
       
-  
+      # FIX 3: setNames(value, name) — value must be the original barcode
+      #         so the matrix slicer can find it; name must be the new unique
+      #         barcode so Seurat rownames stay unique.
+      #         Old code had these backwards: setNames(extra, extra_new)
+      #         which put the original barcodes as names and new as values,
+      #         causing the matrix slice to use _dupN as a column index
+      #         (which doesn't exist) and rownames to get the original
+      #         barcode (causing duplicates).
       new_to_orig <- c(new_to_orig,
                        setNames(pool,       pool),       # identity
                        setNames(extra_orig, extra_new))  # value=orig, name=new
@@ -152,7 +165,8 @@ resample_cells <- function(seurat_obj,
   }
   
   # ── Fast path: mode="down", no duplicates ────────────────────────────────
-
+  # subset() propagates ALL assays atomically — RNA and ATAC are guaranteed
+  # to cover the same balanced cell set.
   needs_dup <- any(duplicated(names(new_to_orig)))
   
   if (!needs_dup) {
