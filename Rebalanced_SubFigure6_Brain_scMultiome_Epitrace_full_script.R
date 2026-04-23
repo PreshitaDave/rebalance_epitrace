@@ -436,13 +436,19 @@ epitrace_obj_age_estimated_multiome$celltype <-
   as.character(epitrace_obj_age_estimated_multiome$celltype)
 
 # ── Balance ATAC + RNA together ──────────────────────────────────────────────
+cat("class of celltype right before resample:\n")
+print(class(epitrace_obj_age_estimated_multiome$celltype))
 
 epitrace_balanced <- resample_cells(
   epitrace_obj_age_estimated_multiome,
   alpha = 0.9,
-  mode  = "up", 
+  mode  = "mixed", 
   cap_multiplier = 4
 )
+
+
+print(ncol(epitrace_balanced)) 
+
 
 table(epitrace_balanced$celltype)
 
