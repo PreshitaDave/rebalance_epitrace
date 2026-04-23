@@ -1,5 +1,6 @@
 # this script reproduces Fig 6c,d,e,f,g,h,i,j from the EpiTrace paper + a rebalancing experiment 
 
+# USAGE OF REBALANCE FUNCTION AT LINE 442 
 
 library(Signac)
 library(Seurat)
@@ -441,8 +442,8 @@ print(class(epitrace_obj_age_estimated_multiome$celltype))
 
 epitrace_balanced <- resample_cells(
   epitrace_obj_age_estimated_multiome,
-  alpha = 0.9,
-  mode  = "mixed", 
+  alpha = 0.4,
+  mode  = "down", 
   cap_multiplier = 4
 )
 
@@ -471,36 +472,64 @@ epitrace_obj_age_balanced <- EpiTraceAge_Convergence(
   iterative_time       = 10,
   normalization_method = "randomized"
 )
+# ── Attach 'all' assay to balanced EpiTrace object ───────────────────────────
 
-# ── Reattach metadata + RNA assay from the balanced object ───────────────────
-# Save fresh EpiTrace scores before metadata overwrite
-fresh_age_cols <- grep("EpiTraceAge|Accessibility|nCount_iterative|nFeature_iterative",
-                       colnames(epitrace_obj_age_balanced@meta.data), value = TRUE)
-fresh_ages <- epitrace_obj_age_balanced@meta.data[, fresh_age_cols, drop = FALSE]
-fresh_ages$cell <- rownames(fresh_ages)
+# new_bcs: the unique barcodes that EpiTraceAge_Convergence used as input
+# These are the colnames of mtx_balanced (which came from epitrace_balanced)
+new_bcs <- colnames(mtx_balanced)  # already unique; may contain _dup1 etc.
 
-# Overwrite metadata with balanced object's metadata (celltype, clusters, etc.)
-meta_bal <- epitrace_balanced@meta.data[
-  match(epitrace_obj_age_balanced$cell, epitrace_balanced$cell), ]
-rownames(meta_bal) <- meta_bal$cell
-epitrace_obj_age_balanced@meta.data <- meta_bal
+# The EpiTrace output cell order may differ — match it
+etrace_bcs <- epitrace_obj_age_balanced$cell  # original cell IDs stored in metadata
 
-# Restore fresh EpiTrace scores
-for (col in fresh_age_cols) {
-  epitrace_obj_age_balanced@meta.data[[col]] <-
-    fresh_ages[[col]][match(rownames(epitrace_obj_age_balanced@meta.data),
-                            fresh_ages$cell)]
-}
+# Build an index from original cell ID -> column in mtx_balanced
+# (mtx_balanced cols are new unique barcodes; $cell col in meta_bal is original id)
+orig_ids_in_bal <- epitrace_balanced@meta.data$cell[
+  match(new_bcs, rownames(epitrace_balanced@meta.data))
+]
 
-epitrace_obj_age_balanced[["rna_spliced"]] <- epitrace_balanced[["rna_spliced"]]
+# For the EpiTrace output, find which new_bc corresponds to each etrace cell
+idx <- match(etrace_bcs, orig_ids_in_bal)
+
+mtx_for_assay           <- mtx_balanced[, idx, drop = FALSE]
+colnames(mtx_for_assay) <- rownames(epitrace_obj_age_balanced@meta.data)
+
+# ── Attach 'all' assay to balanced EpiTrace object ───────────────────────────
+
+new_bcs <- colnames(mtx_balanced)
+
+etrace_bcs <- epitrace_obj_age_balanced$cell
+
+orig_ids_in_bal <- epitrace_balanced@meta.data$cell[
+  match(new_bcs, rownames(epitrace_balanced@meta.data))
+]
+
+idx <- match(etrace_bcs, orig_ids_in_bal)
+
+mtx_for_assay           <- mtx_balanced[, idx, drop = FALSE]
+colnames(mtx_for_assay) <- rownames(epitrace_obj_age_balanced@meta.data)
 
 epitrace_obj_age_balanced[["all"]] <- Seurat::CreateAssayObject(
-  counts       = mtx_balanced[, epitrace_obj_age_balanced$cell],
+  counts       = mtx_for_assay,
   min.cells    = 0,
   min.features = 0,
   check.matrix = FALSE
 )
 DefaultAssay(epitrace_obj_age_balanced) <- "all"
+
+# ── Attach RNA assay ─────────────────────────────────────────────────────────
+
+# rna_spliced columns are new unique barcodes — subset to only those
+# that ended up in the EpiTrace output
+rna_mtx           <- GetAssayData(epitrace_balanced, assay = "rna_spliced", layer = "counts")
+rna_mtx_sub       <- rna_mtx[, idx, drop = FALSE]
+colnames(rna_mtx_sub) <- rownames(epitrace_obj_age_balanced@meta.data)
+
+epitrace_obj_age_balanced[["rna_spliced"]] <- Seurat::CreateAssayObject(
+  counts       = rna_mtx_sub,
+  min.cells    = 0,
+  min.features = 0,
+  check.matrix = FALSE
+)
 
 message(sprintf("Balanced EpiTrace done: %d cells", ncol(epitrace_obj_age_balanced)))
 
