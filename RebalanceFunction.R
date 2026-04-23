@@ -1,6 +1,6 @@
 # ============================================================================
 # EpiTrace Cell-Type Rebalancing 
-#
+# USAGE OF FUNCTION IN Rebalanced_SubFigure6_Brain_scMultiome_Epitrace_full_script.R LINE 440 
 # Regimes :
 #   "down"  — Regime A  Pure downsampling. Majority classes lose cells.
 #                        Rare classes are untouched. Total N shrinks.
