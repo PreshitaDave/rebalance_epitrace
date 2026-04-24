@@ -442,9 +442,8 @@ print(class(epitrace_obj_age_estimated_multiome$celltype))
 # ── Step 1: resample and LOCK the result immediately ─────────────────────────
 epitrace_balanced_seurat <- resample_cells(
   epitrace_obj_age_estimated_multiome,
-  alpha          = 0.5,
-  mode           = "up",
-  cap_multiplier = 4
+  alpha          = 0.9,
+  mode           = "mixed"
 )
 
 # Sanity check before going any further
@@ -748,9 +747,35 @@ print(ct_comparison, row.names = FALSE)
 message(sprintf("Total before: %d", sum(ct_comparison$n_before)))
 message(sprintf("Total after : %d", sum(ct_comparison$n_after)))
 
-# Summarise the finding cleanly for your methods/results
+# Summarise the finding cleanly 
 message(sprintf("Cells in original run : %d", ncol(epitrace_obj_age_estimated_multiome)))
 message(sprintf("Cells in balanced run : %d", ncol(epitrace_obj_age_balanced)))
+
+
+# Build per-cell age comparison dataframe 
+
+age_orig_df <- data.frame(
+  original_cell = epitrace_obj_age_estimated_multiome$cell,
+  age_original  = epitrace_obj_age_estimated_multiome$EpiTraceAge_iterative,
+  celltype      = epitrace_obj_age_estimated_multiome$celltype,
+  stringsAsFactors = FALSE
+)
+
+age_bal_df <- data.frame(
+  original_cell = epitrace_obj_age_balanced$original_cell,
+  age_balanced  = epitrace_obj_age_balanced$EpiTraceAge_iterative,
+  stringsAsFactors = FALSE
+)
+
+# For duplicated cells, average their balanced ages back to one value per original cell
+age_bal_agg <- aggregate(age_balanced ~ original_cell, data = age_bal_df, FUN = mean)
+
+age_compare <- merge(age_orig_df, age_bal_agg, by = "original_cell", all.x = FALSE)
+
+message(sprintf("Cells in age_compare: %d", nrow(age_compare)))
+message(sprintf("NAs in age_original : %d", sum(is.na(age_compare$age_original))))
+message(sprintf("NAs in age_balanced : %d", sum(is.na(age_compare$age_balanced))))
+
 message(sprintf("Pearson  r (original vs balanced EpiTrace age) : %.3f",
                 cor(age_compare$age_original, age_compare$age_balanced,
                     use = "complete.obs")))
