@@ -68,8 +68,6 @@ DefaultAssay(epitrace_obj_age_conv_estimated) <- 'all'
 # Add meta 
 readRDS('/projectnb/ds596/students/jishan/input_data_for_EpiTrace/Figure6/meta/Figure6_Brain_scMultiome_meta.rds') -> cell_meta 
 
-# cbind(epitrace_obj_age_conv_estimated@meta.data, temp22 %>% dplyr::select(Cluster.Name, celltype, cytotrace_rna)) -> epitrace_obj_age_conv_estimated@meta.data
-
 
 # ----------------added the following bc seurat_clusters not found in seurat obj ------------------
 # bc of error no surat obj at : Idents(epitrace_obj_age_estimated_multiome) <- epitrace_obj_age_estimated_multiome$seurat_clusters
@@ -439,12 +437,14 @@ epitrace_obj_age_estimated_multiome$celltype <-
 cat("class of celltype right before resample:\n")
 print(class(epitrace_obj_age_estimated_multiome$celltype))
 
-# ── Step 1: resample 
+# ── Step 1: resample and LOCK the result immediately ─────────────────────────
 epitrace_balanced_seurat <- resample_cells(
   epitrace_obj_age_estimated_multiome,
   alpha          = 0.9,
   mode           = "mixed"
 )
+
+# Sanity check before going any further
 
 message(sprintf("Dup barcodes: %d",
                 sum(grepl("_dup[0-9]+$", colnames(epitrace_balanced_seurat)))))
@@ -452,7 +452,7 @@ message(sprintf("Dup barcodes: %d",
 # ── Step 2: pull the count matrix for EpiTrace ───────────────────────────────
 mtx_balanced <- GetAssayData(epitrace_balanced_seurat, assay = "all", layer = "counts")
 
-# ── Step 3: run EpiTrace
+# ── Step 3: run EpiTrace — result goes into a DIFFERENT variable ──────────────
 epitrace_obj_age_balanced <- EpiTraceAge_Convergence(
   initiated_peaks,
   mtx_balanced,
@@ -579,6 +579,8 @@ epitrace_obj_age_balanced$cytotrace_rna_balanced <-
 message(sprintf("CytoTRACE recomputed: %d / %d non-NA",
                 sum(!is.na(epitrace_obj_age_balanced$cytotrace_rna_balanced)),
                 ncol(epitrace_obj_age_balanced)))
+
+# ── Shared colour palettes ───────────────────────────────────────────────────
 
 colorlist <- c(
   "GluN5"      = "cadetblue4",  "IN1"        = "#A2CD5A",
@@ -830,3 +832,69 @@ dropped <- setdiff(age_orig_df$original_cell, age_bal_agg$original_cell)
 message(sprintf("Original cells with no balanced age and was dropped due to downsampling: %d", length(dropped)))
 print("distribution of cells dropped per cell type:")
 print(table(age_orig_df$celltype[age_orig_df$original_cell %in% dropped]))
+
+
+# ── Per-cell-type median CytoTRACE: original vs balanced ─────────────────────
+
+# Build cytotrace comparison dataframe (mirrors age_compare construction)
+cyto_orig_df <- data.frame(
+  original_cell  = epitrace_obj_age_estimated_multiome$cell,
+  cyto_original  = epitrace_obj_age_estimated_multiome$cytotrace_rna,
+  celltype       = epitrace_obj_age_estimated_multiome$celltype,
+  stringsAsFactors = FALSE
+)
+
+cyto_bal_df <- data.frame(
+  original_cell  = epitrace_obj_age_balanced$original_cell,
+  cyto_balanced  = epitrace_obj_age_balanced$cytotrace_rna_balanced,
+  stringsAsFactors = FALSE
+)
+
+# Aggregate duplicates back to one value per original cell
+cyto_bal_agg <- aggregate(cyto_balanced ~ original_cell, data = cyto_bal_df, FUN = mean)
+
+cyto_compare <- merge(cyto_orig_df, cyto_bal_agg, by = "original_cell", all.x = FALSE)
+
+message(sprintf("Cells in cyto_compare: %d", nrow(cyto_compare)))
+message(sprintf("NAs in cyto_original : %d", sum(is.na(cyto_compare$cyto_original))))
+message(sprintf("NAs in cyto_balanced : %d", sum(is.na(cyto_compare$cyto_balanced))))
+
+# ── Per-cell-type medians ─────────────────────────────────────────────────────
+
+ct_median_cyto_orig <- tapply(cyto_compare$cyto_original, cyto_compare$celltype, median, na.rm = TRUE)
+ct_median_cyto_bal  <- tapply(cyto_compare$cyto_balanced,  cyto_compare$celltype, median, na.rm = TRUE)
+
+message(sprintf("Pearson r of per-cell-type median CytoTRACE : %.3f",
+                cor(ct_median_cyto_orig, ct_median_cyto_bal, use = "complete.obs")))
+
+# ── Build scatter dataframe ───────────────────────────────────────────────────
+
+ct_median_cyto_df <- data.frame(
+  celltype  = names(ct_median_cyto_orig),
+  cyto_orig = as.numeric(ct_median_cyto_orig),
+  cyto_bal  = as.numeric(ct_median_cyto_bal[names(ct_median_cyto_orig)])
+)
+
+# ── Plot ──────────────────────────────────────────────────────────────────────
+
+p_median_cyto_scatter <- ggplot(ct_median_cyto_df,
+                                aes(x = cyto_orig, y = cyto_bal, colour = celltype)) +
+  geom_point(size = 5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "gray40") +
+  ggrepel::geom_label_repel(aes(label = celltype), size = 3.5, show.legend = FALSE) +
+  scale_colour_manual(values = colorlist) +
+  annotate("text", x = -Inf, y = Inf, hjust = -0.1, vjust = 1.5, size = 4,
+           label = sprintf("r = %.3f", cor(ct_median_cyto_df$cyto_orig,
+                                           ct_median_cyto_df$cyto_bal,
+                                           use = "complete.obs"))) +
+  theme_classic() +
+  theme(text = element_text(size = 14), legend.position = "none") +
+  labs(title = "Per-cell-type median CytoTRACE: original vs balanced",
+       x = "Median CytoTRACE (original)", y = "Median CytoTRACE (balanced)")
+
+pdf("/projectnb/ds596/students/jishan/Plots/Comparison_median_cytotrace_scatter.pdf",
+    height = 5, width = 6)
+print(p_median_cyto_scatter)
+dev.off()
+
+message("CytoTRACE median scatter saved.")
