@@ -1,5 +1,5 @@
 # ============================================================================
-# EpiTrace Cell-Type Rebalancing Function (main function at line 48) 
+# EpiTrace Cell-Type Rebalancing MAIN FUNCTION AT LINE 48 
 # ============================================================================
 .gini <- function(counts) {
   v <- sort(counts[counts > 0])
