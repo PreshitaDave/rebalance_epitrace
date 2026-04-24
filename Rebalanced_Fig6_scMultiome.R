@@ -898,3 +898,156 @@ print(p_median_cyto_scatter)
 dev.off()
 
 message("CytoTRACE median scatter saved.")
+
+
+
+
+# ---------------- output of numbers from figures -------------
+
+# ── 1. Cell type composition before and after balancing ──────────────────────
+
+message("\n═══ CELL TYPE COUNTS ═══")
+ct_before <- as.data.frame(table(epitrace_obj_age_estimated_multiome$celltype), stringsAsFactors = FALSE)
+ct_after  <- as.data.frame(table(epitrace_obj_age_balanced$celltype),            stringsAsFactors = FALSE)
+colnames(ct_before) <- c("celltype", "n_original")
+colnames(ct_after)  <- c("celltype", "n_balanced")
+ct_comp <- merge(ct_before, ct_after, by = "celltype", all = TRUE)
+ct_comp$pct_original <- round(100 * ct_comp$n_original / sum(ct_comp$n_original), 1)
+ct_comp$pct_balanced <- round(100 * ct_comp$n_balanced / sum(ct_comp$n_balanced), 1)
+ct_comp <- ct_comp[order(-ct_comp$n_original), ]
+print(ct_comp, row.names = FALSE)
+
+
+# ── 2. Figure 6i equivalent: per-cell-type EpiTrace and CytoTRACE summaries ──
+
+message("\n═══ FIG 6i — PER CELL TYPE EPITRACE AGE SUMMARY ═══")
+message("--- Original ---")
+epitrace_orig_summary <- tapply(
+  epitrace_obj_age_estimated_multiome$EpiTraceAge_iterative,
+  epitrace_obj_age_estimated_multiome$celltype,
+  function(x) c(median = round(median(x, na.rm=T), 4),
+                mean   = round(mean(x,   na.rm=T), 4),
+                sd     = round(sd(x,     na.rm=T), 4),
+                n      = sum(!is.na(x)))
+)
+print(do.call(rbind, epitrace_orig_summary))
+
+message("--- Balanced ---")
+epitrace_bal_summary <- tapply(
+  epitrace_obj_age_balanced$EpiTraceAge_iterative,
+  epitrace_obj_age_balanced$celltype,
+  function(x) c(median = round(median(x, na.rm=T), 4),
+                mean   = round(mean(x,   na.rm=T), 4),
+                sd     = round(sd(x,     na.rm=T), 4),
+                n      = sum(!is.na(x)))
+)
+print(do.call(rbind, epitrace_bal_summary))
+
+message("\n═══ FIG 6i — PER CELL TYPE CYTOTRACE SUMMARY ═══")
+message("--- Original ---")
+cyto_orig_summary <- tapply(
+  epitrace_obj_age_estimated_multiome$cytotrace_rna,
+  epitrace_obj_age_estimated_multiome$celltype,
+  function(x) c(median = round(median(x, na.rm=T), 4),
+                mean   = round(mean(x,   na.rm=T), 4),
+                sd     = round(sd(x,     na.rm=T), 4),
+                n      = sum(!is.na(x)))
+)
+print(do.call(rbind, cyto_orig_summary))
+
+message("--- Balanced ---")
+cyto_bal_summary <- tapply(
+  epitrace_obj_age_balanced$cytotrace_rna_balanced,
+  epitrace_obj_age_balanced$celltype,
+  function(x) c(median = round(median(x, na.rm=T), 4),
+                mean   = round(mean(x,   na.rm=T), 4),
+                sd     = round(sd(x,     na.rm=T), 4),
+                n      = sum(!is.na(x)))
+)
+print(do.call(rbind, cyto_bal_summary))
+
+
+# ── 3. Figure 6g/6h equivalent: nIPC population comparison ───────────────────
+
+message("\n═══ FIG 6g/6h — nIPC POPULATION EPITRACE AGE ═══")
+
+nIPC_orig_df$class <- ifelse(nIPC_orig_df$seurat_clusters == "c0", "NR2F1+", "LMO3+")
+nIPC_bal_df        <- epitrace_obj_age_balanced@meta.data[
+  epitrace_obj_age_balanced$seurat_clusters %in% c("c0","c3"), ]
+nIPC_bal_df$class  <- ifelse(nIPC_bal_df$seurat_clusters == "c0", "NR2F1+", "LMO3+")
+
+message("--- EpiTrace Age: Original ---")
+print(tapply(nIPC_orig_df$EpiTraceAge_iterative, nIPC_orig_df$class,
+             function(x) c(median=round(median(x,na.rm=T),4),
+                           mean=round(mean(x,na.rm=T),4),
+                           sd=round(sd(x,na.rm=T),4),
+                           n=sum(!is.na(x)))) %>% do.call(rbind,.))
+
+message("--- EpiTrace Age: Balanced ---")
+print(tapply(nIPC_bal_df$EpiTraceAge_iterative, nIPC_bal_df$class,
+             function(x) c(median=round(median(x,na.rm=T),4),
+                           mean=round(mean(x,na.rm=T),4),
+                           sd=round(sd(x,na.rm=T),4),
+                           n=sum(!is.na(x)))) %>% do.call(rbind,.))
+
+message("\n═══ FIG 6g/6h — nIPC POPULATION CYTOTRACE ═══")
+
+message("--- CytoTRACE: Original ---")
+print(tapply(nIPC_orig_df$cytotrace_rna, nIPC_orig_df$class,
+             function(x) c(median=round(median(x,na.rm=T),4),
+                           mean=round(mean(x,na.rm=T),4),
+                           sd=round(sd(x,na.rm=T),4),
+                           n=sum(!is.na(x)))) %>% do.call(rbind,.))
+
+message("--- CytoTRACE: Balanced ---")
+print(tapply(nIPC_bal_df$cytotrace_rna_balanced, nIPC_bal_df$class,
+             function(x) c(median=round(median(x,na.rm=T),4),
+                           mean=round(mean(x,na.rm=T),4),
+                           sd=round(sd(x,na.rm=T),4),
+                           n=sum(!is.na(x)))) %>% do.call(rbind,.))
+
+message("\n--- Wilcoxon test p-values ---")
+message(sprintf("EpiTrace Age original  (NR2F1+ vs LMO3+): p = %.4e",
+                wilcox.test(EpiTraceAge_iterative ~ class, data = nIPC_orig_df)$p.value))
+message(sprintf("EpiTrace Age balanced  (NR2F1+ vs LMO3+): p = %.4e",
+                wilcox.test(EpiTraceAge_iterative ~ class, data = nIPC_bal_df)$p.value))
+message(sprintf("CytoTRACE original     (NR2F1+ vs LMO3+): p = %.4e",
+                wilcox.test(cytotrace_rna ~ class,         data = nIPC_orig_df)$p.value))
+message(sprintf("CytoTRACE balanced     (NR2F1+ vs LMO3+): p = %.4e",
+                wilcox.test(cytotrace_rna_balanced ~ class, data = nIPC_bal_df)$p.value))
+
+
+# ── 4. Median scatter correlations ───────────────────────────────────────────
+
+message("\n═══ MEDIAN SCATTER CORRELATIONS ═══")
+
+message(sprintf("EpiTrace  Pearson  r (per cell)            : %.3f",
+                cor(age_compare$age_original,  age_compare$age_balanced,  use="complete.obs")))
+message(sprintf("EpiTrace  Spearman r (per cell)            : %.3f",
+                cor(age_compare$age_original,  age_compare$age_balanced,  use="complete.obs", method="spearman")))
+message(sprintf("EpiTrace  Pearson  r (per cell-type median): %.3f",
+                cor(ct_median_orig, ct_median_bal, use="complete.obs")))
+
+message(sprintf("CytoTRACE Pearson  r (per cell)            : %.3f",
+                cor(cyto_compare$cyto_original, cyto_compare$cyto_balanced, use="complete.obs")))
+message(sprintf("CytoTRACE Spearman r (per cell)            : %.3f",
+                cor(cyto_compare$cyto_original, cyto_compare$cyto_balanced, use="complete.obs", method="spearman")))
+message(sprintf("CytoTRACE Pearson  r (per cell-type median): %.3f",
+                cor(ct_median_cyto_orig, ct_median_cyto_bal, use="complete.obs")))
+
+message("\n--- Per cell-type median EpiTrace age table ---")
+print(data.frame(
+  celltype = names(ct_median_orig),
+  median_original = round(as.numeric(ct_median_orig), 4),
+  median_balanced = round(as.numeric(ct_median_bal[names(ct_median_orig)]), 4),
+  direction = ifelse(ct_median_bal[names(ct_median_orig)] > ct_median_orig, "up", "down")
+), row.names = FALSE)
+
+message("\n--- Per cell-type median CytoTRACE table ---")
+print(data.frame(
+  celltype = names(ct_median_cyto_orig),
+  median_original = round(as.numeric(ct_median_cyto_orig), 4),
+  median_balanced = round(as.numeric(ct_median_cyto_bal[names(ct_median_cyto_orig)]), 4),
+  direction = ifelse(ct_median_cyto_bal[names(ct_median_cyto_orig)] > ct_median_cyto_orig, "up", "down")
+), row.names = FALSE)
+
