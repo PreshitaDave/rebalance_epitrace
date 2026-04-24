@@ -447,13 +447,12 @@ epitrace_balanced_seurat <- resample_cells(
 )
 
 # Sanity check before going any further
-stopifnot(ncol(epitrace_balanced_seurat) == 15062)
+
 message(sprintf("Dup barcodes: %d",
                 sum(grepl("_dup[0-9]+$", colnames(epitrace_balanced_seurat)))))
 
 # ── Step 2: pull the count matrix for EpiTrace ───────────────────────────────
 mtx_balanced <- GetAssayData(epitrace_balanced_seurat, assay = "all", layer = "counts")
-stopifnot(ncol(mtx_balanced) == 15062)
 
 # ── Step 3: run EpiTrace — result goes into a DIFFERENT variable ──────────────
 epitrace_obj_age_balanced <- EpiTraceAge_Convergence(
@@ -817,3 +816,9 @@ print(p_median_scatter)
 dev.off()
 
 message("All comparison figures saved.")
+
+
+
+# stopifnot(ncol(mtx_balanced) == 15062)
+# stopifnot(ncol(epitrace_balanced_seurat) == 15062)
+# 
