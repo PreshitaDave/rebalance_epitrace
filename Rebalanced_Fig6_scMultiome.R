@@ -901,6 +901,74 @@ message("CytoTRACE median scatter saved.")
 
 
 
+# ------------visualizing cell type rebalanced distribution -----------------
+
+# ── Cell type composition change visualization ────────────────────────────────
+
+ct_before <- as.data.frame(table(epitrace_obj_age_estimated_multiome$celltype), 
+                           stringsAsFactors = FALSE)
+ct_after  <- as.data.frame(table(epitrace_obj_age_balanced$celltype),            
+                           stringsAsFactors = FALSE)
+colnames(ct_before) <- c("celltype", "n_original")
+colnames(ct_after)  <- c("celltype", "n_balanced")
+
+ct_comp <- merge(ct_before, ct_after, by = "celltype", all = TRUE)
+ct_comp$pct_original <- round(100 * ct_comp$n_original / sum(ct_comp$n_original), 1)
+ct_comp$pct_balanced <- round(100 * ct_comp$n_balanced / sum(ct_comp$n_balanced), 1)
+ct_comp$change       <- ct_comp$n_balanced - ct_comp$n_original
+ct_comp$action       <- ifelse(ct_comp$n_balanced > ct_comp$n_original, "upsampled",
+                               ifelse(ct_comp$n_balanced < ct_comp$n_original, "downsampled", "unchanged"))
+ct_comp <- ct_comp[order(-ct_comp$n_original), ]
+
+# ── Long format for side-by-side bar plot ─────────────────────────────────────
+
+ct_long <- rbind(
+  data.frame(celltype = ct_comp$celltype, n = ct_comp$n_original, run = "Original",  stringsAsFactors = FALSE),
+  data.frame(celltype = ct_comp$celltype, n = ct_comp$n_balanced, run = "Balanced",  stringsAsFactors = FALSE)
+)
+ct_long$celltype <- factor(ct_long$celltype, levels = ct_comp$celltype)
+ct_long$run      <- factor(ct_long$run, levels = c("Original", "Balanced"))
+
+# ── Plot 1: side-by-side bar chart ────────────────────────────────────────────
+
+p_bar <- ggplot(ct_long, aes(x = celltype, y = n, fill = run)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(aes(label = n), position = position_dodge(width = 0.7),
+            vjust = -0.4, size = 3) +
+  scale_fill_manual(values = c("Original" = "steelblue", "Balanced" = "tomato")) +
+  theme_classic() +
+  theme(text = element_text(size = 13),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank()) +
+  labs(title = "Cell counts: original vs balanced",
+       x = NULL, y = "Number of cells")
+
+# ── Plot 2: percent composition stacked bar ───────────────────────────────────
+
+pct_long <- rbind(
+  data.frame(celltype = ct_comp$celltype, pct = ct_comp$pct_original, 
+             run = "Original", stringsAsFactors = FALSE),
+  data.frame(celltype = ct_comp$celltype, pct = ct_comp$pct_balanced, 
+             run = "Balanced", stringsAsFactors = FALSE)
+)
+pct_long$celltype <- factor(pct_long$celltype, levels = rev(ct_comp$celltype))
+pct_long$run      <- factor(pct_long$run, levels = c("Original", "Balanced"))
+
+p_pct <- ggplot(pct_long, aes(x = run, y = pct, fill = celltype)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_text(aes(label = paste0(pct, "%")),
+            position = position_stack(vjust = 0.5), size = 3) +
+  scale_fill_manual(values = colorlist) +
+  theme_classic() +
+  theme(text = element_text(size = 13), legend.title = element_blank()) +
+  labs(title = "Composition: original vs balanced",
+       x = NULL, y = "Percentage of cells")
+
+pdf("/projectnb/ds596/students/jishan/Plots/CellType_Rebalancing_Summary.pdf",
+    height = 14, width = 16)
+(p_bar | p_pct) 
+dev.off()
+
 
 # ---------------- output of numbers from figures -------------
 
@@ -1050,4 +1118,5 @@ print(data.frame(
   median_balanced = round(as.numeric(ct_median_cyto_bal[names(ct_median_cyto_orig)]), 4),
   direction = ifelse(ct_median_cyto_bal[names(ct_median_cyto_orig)] > ct_median_cyto_orig, "up", "down")
 ), row.names = FALSE)
+
 
