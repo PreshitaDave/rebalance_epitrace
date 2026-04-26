@@ -604,7 +604,7 @@ if ("MDM4" %in% colnames(prepare_data_meta)) {
     prepare_data_meta$MDM4   > MDM4_thresh
   ] <- "EGFR+ PDGFRA+"
 } else {
-  # MDM4 not found for this sample — classify by EGFR/PDGFRA only
+  # MDM4 not found for this sample -- classify by EGFR/PDGFRA only
   prepare_data_meta$manual_class[
     prepare_data_meta$EGFR > EGFR_thresh
   ] <- "EGFR+"
@@ -980,7 +980,7 @@ if ("MDM4" %in% colnames(prepare_data_meta)) {
     prepare_data_meta$MDM4   > MDM4_thresh
   ] <- "EGFR+ PDGFRA+"
 } else {
-  # MDM4 not found for this sample — classify by EGFR/PDGFRA only
+  # MDM4 not found for this sample -- classify by EGFR/PDGFRA only
   prepare_data_meta$manual_class[
     prepare_data_meta$EGFR > EGFR_thresh
   ] <- "EGFR+"
@@ -1311,7 +1311,7 @@ if ("MDM4" %in% colnames(prepare_data_meta)) {
     prepare_data_meta$MDM4   > MDM4_thresh
   ] <- "EGFR+ PDGFRA+"
 } else {
-  # MDM4 not found for this sample — classify by EGFR/PDGFRA only
+  # MDM4 not found for this sample -- classify by EGFR/PDGFRA only
   prepare_data_meta$manual_class[
     prepare_data_meta$EGFR > EGFR_thresh
   ] <- "EGFR+"
