@@ -433,8 +433,9 @@ if (length(removed_genes) > 0) {
 
   
   Seurat::AddModuleScore(epitrace_obj_age_estimated, features = featurelist) -> epitrace_obj_age_estimated
-  colnames(epitrace_obj_age_estimated@meta.data)[((ncol(epitrace_obj_age_estimated@meta.data) - 2):ncol(epitrace_obj_age_estimated@meta.data))] <- target_genes
-  FeaturePlot(epitrace_obj_age_estimated, features = c('EpiTraceAge_AllClock', target_genes), order = T, ncol = 4, combine = F) -> gene_plot_list
+  n_added <- length(featurelist)
+  colnames(epitrace_obj_age_estimated@meta.data)[(ncol(epitrace_obj_age_estimated@meta.data) - n_added + 1):ncol(epitrace_obj_age_estimated@meta.data)] <- names(featurelist)
+  FeaturePlot(epitrace_obj_age_estimated, features = c('EpiTraceAge_AllClock', names(featurelist)), order = T, ncol = 4, combine = F) -> gene_plot_list
   epitrace_obj_age_estimated@meta.data$seurat_clusters <- factor(epitrace_obj_age_estimated@meta.data$seurat_clusters, levels = rev(sort(unique(epitrace_obj_age_estimated@meta.data$seurat_clusters))))
   color_use <- c('coral', 'chartreuse4', 'cornflowerblue', 'red')
   lapply(1:length(gene_plot_list), function(idx) {
@@ -582,25 +583,41 @@ prepare_data_meta <- prepare_data_meta %>%
 prepare_data_meta$manual_class <- "Normal"
 
 # Apply gene-score-based classes
-prepare_data_meta$manual_class[
-  prepare_data_meta$MDM4 > MDM4_thresh
-] <- "MDM4+"
+if ("MDM4" %in% colnames(prepare_data_meta)) {
+  prepare_data_meta$manual_class[
+    prepare_data_meta$MDM4 > MDM4_thresh
+  ] <- "MDM4+"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$EGFR > EGFR_thresh &
-  prepare_data_meta$MDM4 > MDM4_thresh
-] <- "EGFR+"
+  prepare_data_meta$manual_class[
+    prepare_data_meta$EGFR > EGFR_thresh &
+    prepare_data_meta$MDM4 > MDM4_thresh
+  ] <- "EGFR+"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$PDGFRA > PDGFRA_thresh &
-  prepare_data_meta$MDM4   > MDM4_thresh
-] <- "PDGFRA+"
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh &
+    prepare_data_meta$MDM4   > MDM4_thresh
+  ] <- "PDGFRA+"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$PDGFRA > PDGFRA_thresh &
-  prepare_data_meta$EGFR   > EGFR_thresh   &
-  prepare_data_meta$MDM4   > MDM4_thresh
-] <- "EGFR+ PDGFRA+"
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh &
+    prepare_data_meta$EGFR   > EGFR_thresh   &
+    prepare_data_meta$MDM4   > MDM4_thresh
+  ] <- "EGFR+ PDGFRA+"
+} else {
+  # MDM4 not found for this sample — classify by EGFR/PDGFRA only
+  prepare_data_meta$manual_class[
+    prepare_data_meta$EGFR > EGFR_thresh
+  ] <- "EGFR+"
+
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh
+  ] <- "PDGFRA+"
+
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh &
+    prepare_data_meta$EGFR   > EGFR_thresh
+  ] <- "EGFR+ PDGFRA+"
+}
 
 # KEY: Cells with "Normal" gene scores but HIGH clock → reclassify as MDM4+
 # This captures cluster 7 without a forced override
@@ -867,8 +884,9 @@ if (length(removed_genes) > 0) {
 }
 
 Seurat::AddModuleScore(epitrace_obj_age_estimated, features = featurelist) -> epitrace_obj_age_estimated
-colnames(epitrace_obj_age_estimated@meta.data)[((ncol(epitrace_obj_age_estimated@meta.data) - 2):ncol(epitrace_obj_age_estimated@meta.data))] <- target_genes
-FeaturePlot(epitrace_obj_age_estimated, features = c('EpiTraceAge_AllClock', target_genes), order = T, ncol = 4, combine = F) -> gene_plot_list
+n_added <- length(featurelist)
+colnames(epitrace_obj_age_estimated@meta.data)[(ncol(epitrace_obj_age_estimated@meta.data) - n_added + 1):ncol(epitrace_obj_age_estimated@meta.data)] <- names(featurelist)
+FeaturePlot(epitrace_obj_age_estimated, features = c('EpiTraceAge_AllClock', names(featurelist)), order = T, ncol = 4, combine = F) -> gene_plot_list
 epitrace_obj_age_estimated@meta.data$seurat_clusters <- factor(epitrace_obj_age_estimated@meta.data$seurat_clusters, levels = rev(sort(unique(epitrace_obj_age_estimated@meta.data$seurat_clusters))))
 color_use <- c('coral', 'chartreuse4', 'cornflowerblue', 'red')
 lapply(1:length(gene_plot_list), function(idx) {
@@ -941,25 +959,41 @@ prepare_data_meta <- prepare_data_meta %>%
 
 prepare_data_meta$manual_class <- "Normal"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$MDM4 > MDM4_thresh
-] <- "MDM4+"
+if ("MDM4" %in% colnames(prepare_data_meta)) {
+  prepare_data_meta$manual_class[
+    prepare_data_meta$MDM4 > MDM4_thresh
+  ] <- "MDM4+"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$EGFR > EGFR_thresh &
-  prepare_data_meta$MDM4 > MDM4_thresh
-] <- "EGFR+"
+  prepare_data_meta$manual_class[
+    prepare_data_meta$EGFR > EGFR_thresh &
+    prepare_data_meta$MDM4 > MDM4_thresh
+  ] <- "EGFR+"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$PDGFRA > PDGFRA_thresh &
-  prepare_data_meta$MDM4   > MDM4_thresh
-] <- "PDGFRA+"
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh &
+    prepare_data_meta$MDM4   > MDM4_thresh
+  ] <- "PDGFRA+"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$PDGFRA > PDGFRA_thresh &
-  prepare_data_meta$EGFR   > EGFR_thresh   &
-  prepare_data_meta$MDM4   > MDM4_thresh
-] <- "EGFR+ PDGFRA+"
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh &
+    prepare_data_meta$EGFR   > EGFR_thresh   &
+    prepare_data_meta$MDM4   > MDM4_thresh
+  ] <- "EGFR+ PDGFRA+"
+} else {
+  # MDM4 not found for this sample — classify by EGFR/PDGFRA only
+  prepare_data_meta$manual_class[
+    prepare_data_meta$EGFR > EGFR_thresh
+  ] <- "EGFR+"
+
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh
+  ] <- "PDGFRA+"
+
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh &
+    prepare_data_meta$EGFR   > EGFR_thresh
+  ] <- "EGFR+ PDGFRA+"
+}
 
 prepare_data_meta$manual_class[
   prepare_data_meta$manual_class == "Normal" &
@@ -1181,8 +1215,9 @@ if (length(removed_genes) > 0) {
 }
 
 Seurat::AddModuleScore(epitrace_obj_age_estimated, features = featurelist) -> epitrace_obj_age_estimated
-colnames(epitrace_obj_age_estimated@meta.data)[((ncol(epitrace_obj_age_estimated@meta.data) - 2):ncol(epitrace_obj_age_estimated@meta.data))] <- target_genes
-FeaturePlot(epitrace_obj_age_estimated, features = c('EpiTraceAge_AllClock', target_genes), order = T, ncol = 4, combine = F) -> gene_plot_list
+n_added <- length(featurelist)
+colnames(epitrace_obj_age_estimated@meta.data)[(ncol(epitrace_obj_age_estimated@meta.data) - n_added + 1):ncol(epitrace_obj_age_estimated@meta.data)] <- names(featurelist)
+FeaturePlot(epitrace_obj_age_estimated, features = c('EpiTraceAge_AllClock', names(featurelist)), order = T, ncol = 4, combine = F) -> gene_plot_list
 epitrace_obj_age_estimated@meta.data$seurat_clusters <- factor(epitrace_obj_age_estimated@meta.data$seurat_clusters, levels = rev(sort(unique(epitrace_obj_age_estimated@meta.data$seurat_clusters))))
 color_use <- c('coral', 'chartreuse4', 'cornflowerblue', 'red')
 lapply(1:length(gene_plot_list), function(idx) {
@@ -1255,25 +1290,41 @@ prepare_data_meta <- prepare_data_meta %>%
 
 prepare_data_meta$manual_class <- "Normal"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$MDM4 > MDM4_thresh
-] <- "MDM4+"
+if ("MDM4" %in% colnames(prepare_data_meta)) {
+  prepare_data_meta$manual_class[
+    prepare_data_meta$MDM4 > MDM4_thresh
+  ] <- "MDM4+"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$EGFR > EGFR_thresh &
-  prepare_data_meta$MDM4 > MDM4_thresh
-] <- "EGFR+"
+  prepare_data_meta$manual_class[
+    prepare_data_meta$EGFR > EGFR_thresh &
+    prepare_data_meta$MDM4 > MDM4_thresh
+  ] <- "EGFR+"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$PDGFRA > PDGFRA_thresh &
-  prepare_data_meta$MDM4   > MDM4_thresh
-] <- "PDGFRA+"
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh &
+    prepare_data_meta$MDM4   > MDM4_thresh
+  ] <- "PDGFRA+"
 
-prepare_data_meta$manual_class[
-  prepare_data_meta$PDGFRA > PDGFRA_thresh &
-  prepare_data_meta$EGFR   > EGFR_thresh   &
-  prepare_data_meta$MDM4   > MDM4_thresh
-] <- "EGFR+ PDGFRA+"
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh &
+    prepare_data_meta$EGFR   > EGFR_thresh   &
+    prepare_data_meta$MDM4   > MDM4_thresh
+  ] <- "EGFR+ PDGFRA+"
+} else {
+  # MDM4 not found for this sample — classify by EGFR/PDGFRA only
+  prepare_data_meta$manual_class[
+    prepare_data_meta$EGFR > EGFR_thresh
+  ] <- "EGFR+"
+
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh
+  ] <- "PDGFRA+"
+
+  prepare_data_meta$manual_class[
+    prepare_data_meta$PDGFRA > PDGFRA_thresh &
+    prepare_data_meta$EGFR   > EGFR_thresh
+  ] <- "EGFR+ PDGFRA+"
+}
 
 prepare_data_meta$manual_class[
   prepare_data_meta$manual_class == "Normal" &
