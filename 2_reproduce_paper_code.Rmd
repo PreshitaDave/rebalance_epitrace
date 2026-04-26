@@ -127,7 +127,7 @@ lapply(1:length(gene_plot_list),function(idx){
   }
   pdata$newvalue <- pdata$value <- pdata[,ncol(pdata)]
   pdata$ident <- factor(pdata$ident,levels=levels(epitrace_obj_age_estimated@meta.data$seurat_clusters),ordered = T)
-  ggplot(pdata,aes(x=value,y=ident,fill=ident,group=ident)) + geom_violin(aes(fill=ident),scale='width') + theme_classic() + scale_fill_manual(values = colors_plot) +geom_boxplot(fill='black',width=0.2,outlier.alpha = 0) + theme(legend.position = 'none',axis.title.y = element_blank(),axis.text.x=element_blank(),text=element_text(size=15)) + ggtitle(ptitle) + xlab(xlabel)
+  ggplot(pdata,aes(x=value,y=ident,fill=ident,group=ident)) + geom_violin(aes(fill=ident),scale='width') + theme_classic() + scale_fill_manual(values = colors_plot) +geom_boxplot(fill='black',width=0.2,outlier.alpha = 0) + theme(legend.position = 'none',axis.title.y = element_blank(),text=element_text(size=15)) + ggtitle(ptitle) + xlab(xlabel)
 }) -> final_gene_exp_violin_list  
 
 wrap_plots(final_gene_exp_violin_list,ncol=2) -> p2
@@ -453,7 +453,7 @@ if (length(removed_genes) > 0) {
       theme_classic() +
       scale_fill_manual(values = colors_plot) +
       geom_boxplot(fill = 'black', width = 0.2, outlier.alpha = 0) +
-      theme(legend.position = 'none', axis.title.y = element_blank(), axis.text.x = element_blank(), text = element_text(size = 15)) +
+      theme(legend.position = 'none', axis.title.y = element_blank(), text = element_text(size = 15)) +
       ggtitle(ptitle) + xlab(xlabel)
   }) -> final_gene_exp_violin_list
   wrap_plots(final_gene_exp_violin_list, ncol = 2) -> p2
@@ -467,12 +467,12 @@ if (length(removed_genes) > 0) {
 
 
 ### panel f and g
-For 8f - we need to adjust the cutoffs since The MDM4 threshold of -0.1 is far too permissive — it classifies almost every cell as MDM4+, leaving only extreme outliers as "Normal". Meanwhile clusters 0 and 9 (which clearly have the lowest MitosisClock) are being misclassified as MDM4+.
-
-Need to find the correct thresholds for prepare metadata 
+For 8f - MDM4 amplification threshold of -0.1 is determined from sample 4349 and applied to all samples.
 
 
 ```{r}
+prepare_data_meta <- epitrace_obj_age_estimated@meta.data
+
 # ── 1. Visualize the actual separation ───────────────────────────────────────
 # Plot all three features that could separate cluster 7
 plot_data <- prepare_data_meta %>%
@@ -563,7 +563,7 @@ normal_cells <- prepare_data_meta %>%
   dplyr::mutate(seurat_clusters = as.character(seurat_clusters)) %>%
   dplyr::filter(seurat_clusters %in% c("0", "9"))
 
-MDM4_thresh   <- quantile(normal_cells$MDM4,   0.90, na.rm = TRUE)
+MDM4_thresh   <- -0.1  # threshold from sample 4349
 EGFR_thresh   <- quantile(normal_cells$EGFR,   0.90, na.rm = TRUE)
 PDGFRA_thresh <- quantile(normal_cells$PDGFRA, 0.90, na.rm = TRUE)
 
@@ -794,6 +794,630 @@ combined_figure
 
 
 
+## Sample 4250
+```{r}
+sample <- 'GSM4131777_4250'
+cat('Processing', sample, '\n')
+matrix_file <- file.path(data_dir, paste0(sample, '_matrix.mtx.gz'))
+peaks_file <- file.path(data_dir, paste0(sample, '_peaks.bed.gz'))
+barcodes_file <- file.path(data_dir, paste0(sample, '_barcodes.tsv.gz'))
+
+# Create output subfolder for this sample
+sample_output_dir <- file.path(main_output_dir, sample)
+dir.create(sample_output_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Load data
+mat <- Matrix::readMM(matrix_file)
+peaks <- readr::read_tsv(peaks_file, col_names = FALSE)
+barcodes <- readr::read_tsv(barcodes_file, col_names = FALSE)
+rownames(mat) <- paste0(peaks$X1, '-', peaks$X2, '-', peaks$X3)
+colnames(mat) <- barcodes$X1
+
+# Build Epitrace object
+peakset <- GenomicRanges::GRanges(seqnames = peaks$X1, ranges = IRanges::IRanges(start = peaks$X2, end = peaks$X3))
+initiated_peaks <- Init_Peakset(peakset)
+initiated_mm <- Init_Matrix(cellname = colnames(mat), peakname = rownames(mat), matrix = mat)
+epitrace_obj <- EpiTrace_prepare_object(initiated_peaks, initiated_mm, ref_genome = 'hg38', non_standard_clock = FALSE, clock_gr_list = clock_gr_list, qualnum = 1)
+DefaultAssay(epitrace_obj) <- 'peaks'
+epitrace_obj <- epitrace_obj %>% Signac::RunTFIDF() %>% Signac::FindTopFeatures(min.cutoff = 50) %>% Signac::RunSVD() %>% RunUMAP(reduction = 'lsi', dims = 2:31) %>% FindNeighbors(reduction = 'lsi', dims = 2:31, k.param = 21) %>% FindClusters(verbose = FALSE, algorithm = 3, resolution = 0.8)
+
+# Downstream analysis
+epitrace_obj_age_estimated <- RunEpiTraceAge(epitrace_obj, normalization_method = 'randomized')
+
+num_cat = length(unique(epitrace_obj_age_estimated$seurat_clusters))
+# Figure 8a
+colors_plot <- colorRampPalette(colors = RColorBrewer::brewer.pal(n = num_cat, name = 'Set1'))(num_cat)
+names(colors_plot) <- unique(epitrace_obj_age_estimated$seurat_clusters)
+DimPlot(epitrace_obj_age_estimated, label = T)  -> p1
+p1$data %>% dplyr::group_by(ident) %>% dplyr::summarise(umap_1 = mean(umap_1), umap_2 = mean(umap_2)) -> p1_loc
+ggplot(p1$data, aes(x = umap_1, y = umap_2, color = ident)) + geom_point() + theme_classic() + scale_color_manual(values = colors_plot) + theme(legend.position = 'none', axis.text.x = element_text(size = 12), axis.text.y = element_text(size = 15)) -> p1
+pdf(file.path(sample_output_dir, 'Figure8a_UMAP.pdf'), width = 6, height = 6)
+print(p1 + geom_label(data = p1_loc, mapping = aes(x = umap_1, y = umap_2, label = ident), fill = 'white', color = 'black'))
+dev.off()
+
+# Figure 8b-8e
+target_genes <- c('MDM4', 'EGFR', 'PDGFRA')
+granges(epitrace_obj_age_estimated) -> tempdf_GR
+lapply(target_genes, function(x) {
+  if (x %in% 'PDGFRA') {
+    widthid = 10000
+  } else {
+    widthid = 300
+  }
+  testdf <- tempdf_GR[findOverlaps(tempdf_GR, flank(annotations[annotations$gene_name %in% x, ], width = widthid, both = T))@from %>% unique, ]
+  if (length(testdf) > 0) {
+    testdf$gene <- x
+    testdf <- as.data.frame(testdf)
+    testdf
+  } else {
+    NULL
+  }
+}) %>% bind_rows -> testdf
+
+testdf$target_feature <- paste0(testdf$seqnames, '-', testdf$start, '-', testdf$end)
+lapply(target_genes, function(x) {
+  testdf$target_feature[testdf$gene %in% x]
+}) -> featurelist
+names(featurelist) <- target_genes
+
+featurelist <- featurelist[sapply(featurelist, length) > 0]
+removed_genes <- target_genes[!(target_genes %in% names(featurelist))]
+if (length(removed_genes) > 0) {
+  message("Genes removed (no features found): ", paste(removed_genes, collapse = ", "))
+}
+
+Seurat::AddModuleScore(epitrace_obj_age_estimated, features = featurelist) -> epitrace_obj_age_estimated
+colnames(epitrace_obj_age_estimated@meta.data)[((ncol(epitrace_obj_age_estimated@meta.data) - 2):ncol(epitrace_obj_age_estimated@meta.data))] <- target_genes
+FeaturePlot(epitrace_obj_age_estimated, features = c('EpiTraceAge_AllClock', target_genes), order = T, ncol = 4, combine = F) -> gene_plot_list
+epitrace_obj_age_estimated@meta.data$seurat_clusters <- factor(epitrace_obj_age_estimated@meta.data$seurat_clusters, levels = rev(sort(unique(epitrace_obj_age_estimated@meta.data$seurat_clusters))))
+color_use <- c('coral', 'chartreuse4', 'cornflowerblue', 'red')
+lapply(1:length(gene_plot_list), function(idx) {
+  gene_plot_list[[idx]]$data -> pdata
+  gene_plot_list[[idx]]$labels$title -> ptitle
+  if (idx == 1) {
+    ptitle <- 'Clock'
+    xlabel <- 'EpiTrace Age'
+  } else {
+    xlabel <- 'Expression'
+  }
+  pdata$newvalue <- pdata$value <- pdata[, ncol(pdata)]
+  pdata$ident <- factor(pdata$ident, levels = levels(epitrace_obj_age_estimated@meta.data$seurat_clusters), ordered = T)
+  ggplot(pdata, aes(x = value, y = ident, fill = ident, group = ident)) +
+    geom_violin(aes(fill = ident), scale = 'width') +
+    theme_classic() +
+    scale_fill_manual(values = colors_plot) +
+    geom_boxplot(fill = 'black', width = 0.2, outlier.alpha = 0) +
+    theme(legend.position = 'none', axis.title.y = element_blank(), text = element_text(size = 15)) +
+    ggtitle(ptitle) + xlab(xlabel)
+}) -> final_gene_exp_violin_list
+wrap_plots(final_gene_exp_violin_list, ncol = 2) -> p2
+pdf(file.path(sample_output_dir, 'Figure8b_8e_expression.pdf'), width = 6, height = 6)
+print(p2)
+dev.off()
+```
+
+
+### panel f and g for 4250
+```{r}
+prepare_data_meta <- epitrace_obj_age_estimated@meta.data
+
+# MDM4 threshold based on sample 4349
+MDM4_thresh <- -0.1
+
+# Compute clock and other gene thresholds from normal clusters
+clock_normal <- prepare_data_meta %>%
+  dplyr::mutate(seurat_clusters = as.character(seurat_clusters)) %>%
+  dplyr::filter(seurat_clusters %in% c("0", "9")) %>%
+  dplyr::pull(EpiTraceAge_MitosisClock)
+
+clock_cluster7 <- prepare_data_meta %>%
+  dplyr::mutate(seurat_clusters = as.character(seurat_clusters)) %>%
+  dplyr::filter(seurat_clusters == "7") %>%
+  dplyr::pull(EpiTraceAge_MitosisClock)
+
+clock_thresh <- mean(c(
+  quantile(clock_normal,   0.95, na.rm = TRUE),
+  quantile(clock_cluster7, 0.05, na.rm = TRUE)
+))
+
+cat(sprintf("Clock threshold to separate Normal from cluster 7: %.4f\n", clock_thresh))
+
+normal_cells <- prepare_data_meta %>%
+  dplyr::mutate(seurat_clusters = as.character(seurat_clusters)) %>%
+  dplyr::filter(seurat_clusters %in% c("0", "9"))
+
+EGFR_thresh   <- quantile(normal_cells$EGFR,   0.90, na.rm = TRUE)
+PDGFRA_thresh <- quantile(normal_cells$PDGFRA, 0.90, na.rm = TRUE)
+
+cat(sprintf("MDM4   threshold: %.4f\n", MDM4_thresh))
+cat(sprintf("EGFR   threshold: %.4f\n", EGFR_thresh))
+cat(sprintf("PDGFRA threshold: %.4f\n", PDGFRA_thresh))
+```
+
+
+```{r}
+prepare_data_meta <- prepare_data_meta %>%
+  dplyr::mutate(seurat_clusters = as.character(seurat_clusters))
+
+prepare_data_meta$manual_class <- "Normal"
+
+prepare_data_meta$manual_class[
+  prepare_data_meta$MDM4 > MDM4_thresh
+] <- "MDM4+"
+
+prepare_data_meta$manual_class[
+  prepare_data_meta$EGFR > EGFR_thresh &
+  prepare_data_meta$MDM4 > MDM4_thresh
+] <- "EGFR+"
+
+prepare_data_meta$manual_class[
+  prepare_data_meta$PDGFRA > PDGFRA_thresh &
+  prepare_data_meta$MDM4   > MDM4_thresh
+] <- "PDGFRA+"
+
+prepare_data_meta$manual_class[
+  prepare_data_meta$PDGFRA > PDGFRA_thresh &
+  prepare_data_meta$EGFR   > EGFR_thresh   &
+  prepare_data_meta$MDM4   > MDM4_thresh
+] <- "EGFR+ PDGFRA+"
+
+prepare_data_meta$manual_class[
+  prepare_data_meta$manual_class == "Normal" &
+  prepare_data_meta$EpiTraceAge_MitosisClock > clock_thresh
+] <- "MDM4+"
+
+prepare_data_meta$manual_class <- factor(
+  prepare_data_meta$manual_class,
+  levels = c("Normal", "MDM4+", "EGFR+ PDGFRA+", "EGFR+", "PDGFRA+")
+)
+```
+
+
+```{r}
+colors_pie <- c(
+  "Normal"        = "white",
+  "MDM4+"         = "gray",
+  "EGFR+ PDGFRA+" = "orange",
+  "EGFR+"         = "red",
+  "PDGFRA+"       = "black"
+)
+
+p3 <- ggplot(prepare_data_meta,
+             aes(x = EpiTraceAge_MitosisClock, y = manual_class)) +
+  geom_violin(aes(fill = manual_class), scale = "width") +
+  geom_boxplot(fill = "darkgray", outlier.alpha = 0, width = 0.1) +
+  scale_fill_manual(values = colors_pie) +
+  theme_classic() +
+  theme(axis.title.y = element_blank(),
+        text         = element_text(size = 15)) +
+  xlab("MitosisClock")
+
+p3
+
+pdf(file.path(sample_output_dir, "Figure8f_EpiTrace_Age_in_celltypes.pdf"),
+    width = 7, height = 3.5)
+print(p3)
+dev.off()
+
+saveRDS(epitrace_obj_age_estimated, file.path(sample_output_dir, 'epitrace_obj_age_estimated.rds'))
+```
+
+Making phylotree separately
+```{r}
+phylotree_res <- RunEpiTracePhylogeny(epitrace_obj_age_estimated, run_reduction = T)
+phylotree_res[[4]][[2]] -> data.tree_clock
+
+data.tree_clock <- ape::root(data.tree_clock, outgroup = "g0", resolve.root = TRUE)
+
+clusters <- unique(as.character(epitrace_obj_age_estimated$seurat_clusters))
+colors_plot <- colorRampPalette(colors=RColorBrewer::brewer.pal(n=9, name = 'Set1'))(length(clusters))
+names(colors_plot) <- paste0("g", clusters)
+
+library(ggtree)
+p2_tree <- ggtree(data.tree_clock, layout='rectangular') +
+  geom_tippoint(aes(color = label), size=5) +
+  geom_tiplab(aes(label = label), color='black', size=4, offset = 0.2) +
+  scale_color_manual(values = colors_plot) +
+  theme(legend.position='right', text=element_text(size=15))
+
+p2_tree <- p2_tree + hexpand(0.2, direction = 1)
+
+p2_tree
+
+pdf(file.path(sample_output_dir, "Figure8g_GBM_clock_phylo.pdf"), width = 8, height = 4)
+p2_tree
+dev.off()
+```
+
+
+Making pie charts separately
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+cluster_order <- rev(sort(unique(as.character(prepare_data_meta$seurat_clusters))))
+
+pie_data <- prepare_data_meta %>%
+  dplyr::mutate(seurat_clusters = as.character(seurat_clusters)) %>%
+  dplyr::group_by(seurat_clusters, manual_class) %>%
+  dplyr::tally() %>%
+  dplyr::group_by(seurat_clusters) %>%
+  dplyr::mutate(prop = n / sum(n)) %>%
+  dplyr::ungroup()
+
+all_combos <- expand.grid(
+  seurat_clusters  = cluster_order,
+  manual_class     = levels(prepare_data_meta$manual_class),
+  stringsAsFactors = FALSE
+)
+pie_data <- dplyr::left_join(all_combos, pie_data,
+                              by = c("seurat_clusters", "manual_class"))
+pie_data$prop[is.na(pie_data$prop)] <- 0
+pie_data$n[is.na(pie_data$n)]       <- 0
+
+pie_data$seurat_clusters <- factor(pie_data$seurat_clusters, levels = cluster_order)
+pie_data$manual_class    <- factor(pie_data$manual_class, levels = levels(prepare_data_meta$manual_class))
+
+p_pies <- ggplot(pie_data %>% dplyr::filter(prop > 0),
+                 aes(x = "", y = prop, fill = manual_class)) +
+  geom_bar(stat = "identity", width = 1, color = "black", linewidth = 0.4) +
+  coord_polar("y", start = 0) +
+  facet_wrap(~ seurat_clusters, ncol = 1, strip.position = "left") +
+  scale_fill_manual(values = colors_pie, name = "CNV Class") +
+  theme_void() +
+  theme(
+    strip.text       = element_text(size = 14, face = "bold", hjust = 0.5),
+    legend.position  = "right",
+    legend.title     = element_text(size = 11, face = "bold"),
+    legend.text      = element_text(size = 10),
+    panel.spacing    = unit(0.1, "lines"),
+    plot.margin      = margin(5, 5, 5, 5)
+  )
+
+p_pies
+
+pdf(file.path(sample_output_dir, "Figure8g_PieCharts_only.pdf"), width = 3, height = 8)
+print(p_pies)
+dev.off()
+```
+
+
+Combining all the figures
+```{r}
+row1 <- (p1 + geom_label(data=p1_loc, mapping=aes(x=umap_1, y=umap_2, label=ident), fill='white', color='black') | p2) +
+  plot_layout(widths = c(1, 1.1))
+
+row2 <- (p3 | p2_tree) +
+  plot_layout(widths = c(1.2, 1))
+
+combined_figure <- (row1 / row2) +
+  plot_layout(heights = c(1.2, 1.0)) +
+  plot_annotation(
+    tag_levels = "a",
+    theme = theme(plot.tag = element_text(size = 16, face = "bold"))
+  )
+
+pdf(file.path(sample_output_dir, "Figure8_combined.pdf"), width = 12, height = 9)
+print(combined_figure)
+dev.off()
+
+combined_figure
+```
+
+
+
+
+## Sample 4275
+```{r}
+sample <- 'GSM4131778_4275'
+cat('Processing', sample, '\n')
+matrix_file <- file.path(data_dir, paste0(sample, '_matrix.mtx.gz'))
+peaks_file <- file.path(data_dir, paste0(sample, '_peaks.bed.gz'))
+barcodes_file <- file.path(data_dir, paste0(sample, '_barcodes.tsv.gz'))
+
+# Create output subfolder for this sample
+sample_output_dir <- file.path(main_output_dir, sample)
+dir.create(sample_output_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Load data
+mat <- Matrix::readMM(matrix_file)
+peaks <- readr::read_tsv(peaks_file, col_names = FALSE)
+barcodes <- readr::read_tsv(barcodes_file, col_names = FALSE)
+rownames(mat) <- paste0(peaks$X1, '-', peaks$X2, '-', peaks$X3)
+colnames(mat) <- barcodes$X1
+
+# Build Epitrace object
+peakset <- GenomicRanges::GRanges(seqnames = peaks$X1, ranges = IRanges::IRanges(start = peaks$X2, end = peaks$X3))
+initiated_peaks <- Init_Peakset(peakset)
+initiated_mm <- Init_Matrix(cellname = colnames(mat), peakname = rownames(mat), matrix = mat)
+epitrace_obj <- EpiTrace_prepare_object(initiated_peaks, initiated_mm, ref_genome = 'hg38', non_standard_clock = FALSE, clock_gr_list = clock_gr_list, qualnum = 1)
+DefaultAssay(epitrace_obj) <- 'peaks'
+epitrace_obj <- epitrace_obj %>% Signac::RunTFIDF() %>% Signac::FindTopFeatures(min.cutoff = 50) %>% Signac::RunSVD() %>% RunUMAP(reduction = 'lsi', dims = 2:31) %>% FindNeighbors(reduction = 'lsi', dims = 2:31, k.param = 21) %>% FindClusters(verbose = FALSE, algorithm = 3, resolution = 0.8)
+
+# Downstream analysis
+epitrace_obj_age_estimated <- RunEpiTraceAge(epitrace_obj, normalization_method = 'randomized')
+
+num_cat = length(unique(epitrace_obj_age_estimated$seurat_clusters))
+# Figure 8a
+colors_plot <- colorRampPalette(colors = RColorBrewer::brewer.pal(n = num_cat, name = 'Set1'))(num_cat)
+names(colors_plot) <- unique(epitrace_obj_age_estimated$seurat_clusters)
+DimPlot(epitrace_obj_age_estimated, label = T)  -> p1
+p1$data %>% dplyr::group_by(ident) %>% dplyr::summarise(umap_1 = mean(umap_1), umap_2 = mean(umap_2)) -> p1_loc
+ggplot(p1$data, aes(x = umap_1, y = umap_2, color = ident)) + geom_point() + theme_classic() + scale_color_manual(values = colors_plot) + theme(legend.position = 'none', axis.text.x = element_text(size = 12), axis.text.y = element_text(size = 15)) -> p1
+pdf(file.path(sample_output_dir, 'Figure8a_UMAP.pdf'), width = 6, height = 6)
+print(p1 + geom_label(data = p1_loc, mapping = aes(x = umap_1, y = umap_2, label = ident), fill = 'white', color = 'black'))
+dev.off()
+
+# Figure 8b-8e
+target_genes <- c('MDM4', 'EGFR', 'PDGFRA')
+granges(epitrace_obj_age_estimated) -> tempdf_GR
+lapply(target_genes, function(x) {
+  if (x %in% 'PDGFRA') {
+    widthid = 10000
+  } else {
+    widthid = 300
+  }
+  testdf <- tempdf_GR[findOverlaps(tempdf_GR, flank(annotations[annotations$gene_name %in% x, ], width = widthid, both = T))@from %>% unique, ]
+  if (length(testdf) > 0) {
+    testdf$gene <- x
+    testdf <- as.data.frame(testdf)
+    testdf
+  } else {
+    NULL
+  }
+}) %>% bind_rows -> testdf
+
+testdf$target_feature <- paste0(testdf$seqnames, '-', testdf$start, '-', testdf$end)
+lapply(target_genes, function(x) {
+  testdf$target_feature[testdf$gene %in% x]
+}) -> featurelist
+names(featurelist) <- target_genes
+
+featurelist <- featurelist[sapply(featurelist, length) > 0]
+removed_genes <- target_genes[!(target_genes %in% names(featurelist))]
+if (length(removed_genes) > 0) {
+  message("Genes removed (no features found): ", paste(removed_genes, collapse = ", "))
+}
+
+Seurat::AddModuleScore(epitrace_obj_age_estimated, features = featurelist) -> epitrace_obj_age_estimated
+colnames(epitrace_obj_age_estimated@meta.data)[((ncol(epitrace_obj_age_estimated@meta.data) - 2):ncol(epitrace_obj_age_estimated@meta.data))] <- target_genes
+FeaturePlot(epitrace_obj_age_estimated, features = c('EpiTraceAge_AllClock', target_genes), order = T, ncol = 4, combine = F) -> gene_plot_list
+epitrace_obj_age_estimated@meta.data$seurat_clusters <- factor(epitrace_obj_age_estimated@meta.data$seurat_clusters, levels = rev(sort(unique(epitrace_obj_age_estimated@meta.data$seurat_clusters))))
+color_use <- c('coral', 'chartreuse4', 'cornflowerblue', 'red')
+lapply(1:length(gene_plot_list), function(idx) {
+  gene_plot_list[[idx]]$data -> pdata
+  gene_plot_list[[idx]]$labels$title -> ptitle
+  if (idx == 1) {
+    ptitle <- 'Clock'
+    xlabel <- 'EpiTrace Age'
+  } else {
+    xlabel <- 'Expression'
+  }
+  pdata$newvalue <- pdata$value <- pdata[, ncol(pdata)]
+  pdata$ident <- factor(pdata$ident, levels = levels(epitrace_obj_age_estimated@meta.data$seurat_clusters), ordered = T)
+  ggplot(pdata, aes(x = value, y = ident, fill = ident, group = ident)) +
+    geom_violin(aes(fill = ident), scale = 'width') +
+    theme_classic() +
+    scale_fill_manual(values = colors_plot) +
+    geom_boxplot(fill = 'black', width = 0.2, outlier.alpha = 0) +
+    theme(legend.position = 'none', axis.title.y = element_blank(), text = element_text(size = 15)) +
+    ggtitle(ptitle) + xlab(xlabel)
+}) -> final_gene_exp_violin_list
+wrap_plots(final_gene_exp_violin_list, ncol = 2) -> p2
+pdf(file.path(sample_output_dir, 'Figure8b_8e_expression.pdf'), width = 6, height = 6)
+print(p2)
+dev.off()
+```
+
+
+### panel f and g for 4275
+```{r}
+prepare_data_meta <- epitrace_obj_age_estimated@meta.data
+
+# MDM4 threshold based on sample 4349
+MDM4_thresh <- -0.1
+
+# Compute clock and other gene thresholds from normal clusters
+clock_normal <- prepare_data_meta %>%
+  dplyr::mutate(seurat_clusters = as.character(seurat_clusters)) %>%
+  dplyr::filter(seurat_clusters %in% c("0", "9")) %>%
+  dplyr::pull(EpiTraceAge_MitosisClock)
+
+clock_cluster7 <- prepare_data_meta %>%
+  dplyr::mutate(seurat_clusters = as.character(seurat_clusters)) %>%
+  dplyr::filter(seurat_clusters == "7") %>%
+  dplyr::pull(EpiTraceAge_MitosisClock)
+
+clock_thresh <- mean(c(
+  quantile(clock_normal,   0.95, na.rm = TRUE),
+  quantile(clock_cluster7, 0.05, na.rm = TRUE)
+))
+
+cat(sprintf("Clock threshold to separate Normal from cluster 7: %.4f\n", clock_thresh))
+
+normal_cells <- prepare_data_meta %>%
+  dplyr::mutate(seurat_clusters = as.character(seurat_clusters)) %>%
+  dplyr::filter(seurat_clusters %in% c("0", "9"))
+
+EGFR_thresh   <- quantile(normal_cells$EGFR,   0.90, na.rm = TRUE)
+PDGFRA_thresh <- quantile(normal_cells$PDGFRA, 0.90, na.rm = TRUE)
+
+cat(sprintf("MDM4   threshold: %.4f\n", MDM4_thresh))
+cat(sprintf("EGFR   threshold: %.4f\n", EGFR_thresh))
+cat(sprintf("PDGFRA threshold: %.4f\n", PDGFRA_thresh))
+```
+
+
+```{r}
+prepare_data_meta <- prepare_data_meta %>%
+  dplyr::mutate(seurat_clusters = as.character(seurat_clusters))
+
+prepare_data_meta$manual_class <- "Normal"
+
+prepare_data_meta$manual_class[
+  prepare_data_meta$MDM4 > MDM4_thresh
+] <- "MDM4+"
+
+prepare_data_meta$manual_class[
+  prepare_data_meta$EGFR > EGFR_thresh &
+  prepare_data_meta$MDM4 > MDM4_thresh
+] <- "EGFR+"
+
+prepare_data_meta$manual_class[
+  prepare_data_meta$PDGFRA > PDGFRA_thresh &
+  prepare_data_meta$MDM4   > MDM4_thresh
+] <- "PDGFRA+"
+
+prepare_data_meta$manual_class[
+  prepare_data_meta$PDGFRA > PDGFRA_thresh &
+  prepare_data_meta$EGFR   > EGFR_thresh   &
+  prepare_data_meta$MDM4   > MDM4_thresh
+] <- "EGFR+ PDGFRA+"
+
+prepare_data_meta$manual_class[
+  prepare_data_meta$manual_class == "Normal" &
+  prepare_data_meta$EpiTraceAge_MitosisClock > clock_thresh
+] <- "MDM4+"
+
+prepare_data_meta$manual_class <- factor(
+  prepare_data_meta$manual_class,
+  levels = c("Normal", "MDM4+", "EGFR+ PDGFRA+", "EGFR+", "PDGFRA+")
+)
+```
+
+
+```{r}
+colors_pie <- c(
+  "Normal"        = "white",
+  "MDM4+"         = "gray",
+  "EGFR+ PDGFRA+" = "orange",
+  "EGFR+"         = "red",
+  "PDGFRA+"       = "black"
+)
+
+p3 <- ggplot(prepare_data_meta,
+             aes(x = EpiTraceAge_MitosisClock, y = manual_class)) +
+  geom_violin(aes(fill = manual_class), scale = "width") +
+  geom_boxplot(fill = "darkgray", outlier.alpha = 0, width = 0.1) +
+  scale_fill_manual(values = colors_pie) +
+  theme_classic() +
+  theme(axis.title.y = element_blank(),
+        text         = element_text(size = 15)) +
+  xlab("MitosisClock")
+
+p3
+
+pdf(file.path(sample_output_dir, "Figure8f_EpiTrace_Age_in_celltypes.pdf"),
+    width = 7, height = 3.5)
+print(p3)
+dev.off()
+
+saveRDS(epitrace_obj_age_estimated, file.path(sample_output_dir, 'epitrace_obj_age_estimated.rds'))
+```
+
+Making phylotree separately
+```{r}
+phylotree_res <- RunEpiTracePhylogeny(epitrace_obj_age_estimated, run_reduction = T)
+phylotree_res[[4]][[2]] -> data.tree_clock
+
+data.tree_clock <- ape::root(data.tree_clock, outgroup = "g0", resolve.root = TRUE)
+
+clusters <- unique(as.character(epitrace_obj_age_estimated$seurat_clusters))
+colors_plot <- colorRampPalette(colors=RColorBrewer::brewer.pal(n=9, name = 'Set1'))(length(clusters))
+names(colors_plot) <- paste0("g", clusters)
+
+library(ggtree)
+p2_tree <- ggtree(data.tree_clock, layout='rectangular') +
+  geom_tippoint(aes(color = label), size=5) +
+  geom_tiplab(aes(label = label), color='black', size=4, offset = 0.2) +
+  scale_color_manual(values = colors_plot) +
+  theme(legend.position='right', text=element_text(size=15))
+
+p2_tree <- p2_tree + hexpand(0.2, direction = 1)
+
+p2_tree
+
+pdf(file.path(sample_output_dir, "Figure8g_GBM_clock_phylo.pdf"), width = 8, height = 4)
+p2_tree
+dev.off()
+```
+
+
+Making pie charts separately
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+cluster_order <- rev(sort(unique(as.character(prepare_data_meta$seurat_clusters))))
+
+pie_data <- prepare_data_meta %>%
+  dplyr::mutate(seurat_clusters = as.character(seurat_clusters)) %>%
+  dplyr::group_by(seurat_clusters, manual_class) %>%
+  dplyr::tally() %>%
+  dplyr::group_by(seurat_clusters) %>%
+  dplyr::mutate(prop = n / sum(n)) %>%
+  dplyr::ungroup()
+
+all_combos <- expand.grid(
+  seurat_clusters  = cluster_order,
+  manual_class     = levels(prepare_data_meta$manual_class),
+  stringsAsFactors = FALSE
+)
+pie_data <- dplyr::left_join(all_combos, pie_data,
+                              by = c("seurat_clusters", "manual_class"))
+pie_data$prop[is.na(pie_data$prop)] <- 0
+pie_data$n[is.na(pie_data$n)]       <- 0
+
+pie_data$seurat_clusters <- factor(pie_data$seurat_clusters, levels = cluster_order)
+pie_data$manual_class    <- factor(pie_data$manual_class, levels = levels(prepare_data_meta$manual_class))
+
+p_pies <- ggplot(pie_data %>% dplyr::filter(prop > 0),
+                 aes(x = "", y = prop, fill = manual_class)) +
+  geom_bar(stat = "identity", width = 1, color = "black", linewidth = 0.4) +
+  coord_polar("y", start = 0) +
+  facet_wrap(~ seurat_clusters, ncol = 1, strip.position = "left") +
+  scale_fill_manual(values = colors_pie, name = "CNV Class") +
+  theme_void() +
+  theme(
+    strip.text       = element_text(size = 14, face = "bold", hjust = 0.5),
+    legend.position  = "right",
+    legend.title     = element_text(size = 11, face = "bold"),
+    legend.text      = element_text(size = 10),
+    panel.spacing    = unit(0.1, "lines"),
+    plot.margin      = margin(5, 5, 5, 5)
+  )
+
+p_pies
+
+pdf(file.path(sample_output_dir, "Figure8g_PieCharts_only.pdf"), width = 3, height = 8)
+print(p_pies)
+dev.off()
+```
+
+
+Combining all the figures
+```{r}
+row1 <- (p1 + geom_label(data=p1_loc, mapping=aes(x=umap_1, y=umap_2, label=ident), fill='white', color='black') | p2) +
+  plot_layout(widths = c(1, 1.1))
+
+row2 <- (p3 | p2_tree) +
+  plot_layout(widths = c(1.2, 1))
+
+combined_figure <- (row1 / row2) +
+  plot_layout(heights = c(1.2, 1.0)) +
+  plot_annotation(
+    tag_levels = "a",
+    theme = theme(plot.tag = element_text(size = 16, face = "bold"))
+  )
+
+pdf(file.path(sample_output_dir, "Figure8_combined.pdf"), width = 12, height = 9)
+print(combined_figure)
+dev.off()
+
+combined_figure
+```
 
 
 
