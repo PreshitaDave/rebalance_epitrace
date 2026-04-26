@@ -437,7 +437,7 @@ epitrace_obj_age_estimated_multiome$celltype <-
 cat("class of celltype right before resample:\n")
 print(class(epitrace_obj_age_estimated_multiome$celltype))
 
-# ── Step 1: resample and LOCK the result immediately ─────────────────────────
+# ── resample 0.9 mixed ─────────────────────────
 epitrace_balanced_seurat <- resample_cells(
   epitrace_obj_age_estimated_multiome,
   alpha          = 0.9,
@@ -1118,5 +1118,690 @@ print(data.frame(
   median_balanced = round(as.numeric(ct_median_cyto_bal[names(ct_median_cyto_orig)]), 4),
   direction = ifelse(ct_median_cyto_bal[names(ct_median_cyto_orig)] > ct_median_cyto_orig, "up", "down")
 ), row.names = FALSE)
+
+
+
+
+
+
+# ------------------------new round of resampling & figures -----------------------------------------
+
+
+
+
+# ── resample 0.9 up ─────────────────────────
+epitrace_balanced_seurat <- resample_cells(
+  epitrace_obj_age_estimated_multiome,
+  alpha          = 0.9,
+  mode           = "up"
+)
+
+# Sanity check before going any further
+
+message(sprintf("Dup barcodes: %d",
+                sum(grepl("_dup[0-9]+$", colnames(epitrace_balanced_seurat)))))
+
+# ── Step 2: pull the count matrix for EpiTrace ───────────────────────────────
+mtx_balanced <- GetAssayData(epitrace_balanced_seurat, assay = "all", layer = "counts")
+
+# ── Step 3: run EpiTrace — result goes into a DIFFERENT variable ──────────────
+epitrace_obj_age_balanced <- EpiTraceAge_Convergence(
+  initiated_peaks,
+  mtx_balanced,
+  ref_genome           = "hg38",
+  non_standard_clock   = FALSE,
+  qualnum              = 1,
+  Z_cutoff             = 3,
+  parallel             = TRUE,
+  ncore_lim            = 46,
+  iterative_time       = 10,
+  normalization_method = "randomized"
+)
+
+
+
+
+# Map each EpiTrace cell (new barcode) -> original cell ID via epitrace_balanced_seurat
+bal_lookup <- epitrace_balanced_seurat@meta.data[, c("cell", "original_cell")]
+
+etrace_cells_new <- rownames(epitrace_obj_age_balanced@meta.data)
+
+idx <- match(etrace_cells_new, colnames(mtx_balanced))
+message(sprintf("NAs in idx: %d / %d", sum(is.na(idx)), length(idx)))
+stopifnot(!any(is.na(idx)))
+
+# Diagnose what keys are actually available
+message("bal_lookup$cell sample: ", paste(head(bal_lookup$cell), collapse=", "))
+message("mtx_balanced colnames sample: ", paste(head(colnames(mtx_balanced)), collapse=", "))
+message("etrace_cells_new sample: ", paste(head(etrace_cells_new), collapse=", "))
+
+orig_ids <- bal_lookup$original_cell[
+  match(etrace_cells_new, rownames(epitrace_balanced_seurat@meta.data))
+]
+message(sprintf("NAs in orig_ids: %d / %d", sum(is.na(orig_ids)), length(orig_ids)))
+stopifnot(!any(is.na(orig_ids)))
+
+# If still NA, try rownames of epitrace_balanced_seurat
+if (any(is.na(orig_ids))) {
+  orig_ids2 <- bal_lookup$original_cell[match(etrace_cells_new, rownames(epitrace_balanced_seurat@meta.data))]
+  message(sprintf("NAs via rownames match: %d / %d", sum(is.na(orig_ids2)), length(orig_ids2)))
+}
+
+# If still NA, try matching via mtx_balanced column names at idx positions
+if (any(is.na(orig_ids))) {
+  orig_ids3 <- bal_lookup$original_cell[match(colnames(mtx_balanced)[idx], rownames(epitrace_balanced_seurat@meta.data))]
+  message(sprintf("NAs via rownames+idx match: %d / %d", sum(is.na(orig_ids3)), length(orig_ids3)))
+}
+epitrace_obj_age_balanced$original_cell <- orig_ids
+
+mtx_for_assay           <- mtx_balanced[, idx, drop = FALSE]
+colnames(mtx_for_assay) <- etrace_cells_new
+
+epitrace_obj_age_balanced[["all"]] <- Seurat::CreateAssayObject(
+  counts       = mtx_for_assay,
+  min.cells    = 0,
+  min.features = 0,
+  check.matrix = FALSE
+)
+DefaultAssay(epitrace_obj_age_balanced) <- "all"
+
+# ── Attach RNA assay ──────────────────────────────────────────────────────────
+
+
+rna_mtx           <- GetAssayData(epitrace_balanced_seurat, assay = "rna_spliced", layer = "counts")
+rna_mtx_sub       <- rna_mtx[, idx, drop = FALSE]
+colnames(rna_mtx_sub) <- etrace_cells_new
+
+epitrace_obj_age_balanced[["rna_spliced"]] <- Seurat::CreateAssayObject(
+  counts       = rna_mtx_sub,
+  min.cells    = 0,
+  min.features = 0,
+  check.matrix = FALSE
+)
+
+message(sprintf("Balanced EpiTrace done: %d cells", ncol(epitrace_obj_age_balanced)))
+
+
+orig_ids <- epitrace_obj_age_balanced$original_cell
+
+epitrace_obj_age_balanced$celltype <-
+  cell_meta$celltype[match(orig_ids, cell_meta$cell)]
+
+epitrace_obj_age_balanced$seurat_clusters <-
+  epitrace_obj_age_estimated_multiome@meta.data$seurat_clusters[
+    match(orig_ids, epitrace_obj_age_estimated_multiome$cell)]
+
+epitrace_obj_age_balanced$Cluster.Name <-
+  epitrace_obj_age_estimated_multiome@meta.data$Cluster.Name[
+    match(orig_ids, epitrace_obj_age_estimated_multiome$cell)]
+
+epitrace_obj_age_balanced$cytotrace_rna <-
+  epitrace_obj_age_estimated_multiome@meta.data$cytotrace_rna[
+    match(orig_ids, epitrace_obj_age_estimated_multiome$cell)]
+
+message("Balanced celltype check:")
+print(table(epitrace_obj_age_balanced$celltype, useNA = "always"))
+
+
+# Also fix original object celltype from source of truth
+epitrace_obj_age_estimated_multiome$celltype <-
+  cell_meta$celltype[match(epitrace_obj_age_estimated_multiome$cell, cell_meta$cell)]
+
+message("Original celltype check:")
+print(table(epitrace_obj_age_estimated_multiome$celltype, useNA = "always"))
+
+# ── Recompute CytoTRACE on balanced RNA ──────────────────────────────────────
+
+rna_balanced_norm <- GetAssayData(
+  epitrace_obj_age_balanced, assay = "rna_spliced", layer = "data"
+)
+
+cytotrace_bal_res <- CytoTRACE(
+  as.matrix(rna_balanced_norm),
+  enableFast = FALSE
+)
+
+epitrace_obj_age_balanced$cytotrace_rna_balanced <-
+  cytotrace_bal_res$CytoTRACE[epitrace_obj_age_balanced$cell]
+
+message(sprintf("CytoTRACE recomputed: %d / %d non-NA",
+                sum(!is.na(epitrace_obj_age_balanced$cytotrace_rna_balanced)),
+                ncol(epitrace_obj_age_balanced)))
+
+# ── Shared colour palettes ───────────────────────────────────────────────────
+
+colorlist <- c(
+  "GluN5"      = "cadetblue4",  "IN1"        = "#A2CD5A",
+  "nIPC/GluN1" = "cornflowerblue", "IN2"     = "#BCEE68",
+  "SP"         = "darkgreen",   "GluN2"      = "cadetblue1",
+  "IN3"        = "#CAFF70",     "RG"         = "red",
+  "GluN4"      = "cadetblue3",  "GluN3"      = "cadetblue2",
+  "Cyc. Prog." = "#FFA500",     "mGPC/OPC"   = "#68228B",
+  "EC/Peric."  = "#8B0000"
+)
+
+colors2 <- c("red","orange","cornflowerblue","cadetblue1","cadetblue2",
+             "cadetblue3","cadetblue4","darkgreen","darkorchid4",
+             "darkolivegreen1","darkolivegreen2","darkolivegreen3","darkred")
+names(colors2) <- names(colorlist)
+
+
+# ── Figure 6i equivalent: 4-panel violin ────────────────────────────────────
+
+brain_meta_orig <- epitrace_obj_age_estimated_multiome@meta.data
+brain_meta_bal  <- epitrace_obj_age_balanced@meta.data
+
+pp1_orig <- ggplot(brain_meta_orig,
+                   aes(y = celltype, x = EpiTraceAge_iterative)) +
+  geom_violin(scale = "width", aes(fill = celltype), alpha = 0.8) +
+  geom_boxplot(width = 0.15, outlier.alpha = 0, fill = "black") +
+  scale_fill_manual(values = colorlist) +
+  scale_y_discrete(limits = names(colorlist)) +
+  theme_classic() +
+  theme(text = element_text(size = 14), legend.position = "none") +
+  xlab("EpiTrace (original)") + ylab("Cell type")
+
+pp1_bal <- ggplot(brain_meta_bal,
+                  aes(y = celltype, x = EpiTraceAge_iterative)) +
+  geom_violin(scale = "width", aes(fill = celltype), alpha = 0.8) +
+  geom_boxplot(width = 0.15, outlier.alpha = 0, fill = "black") +
+  scale_fill_manual(values = colorlist) +
+  scale_y_discrete(limits = names(colorlist)) +
+  theme_classic() +
+  theme(text = element_text(size = 14), legend.position = "none",
+        axis.title.y = element_blank(), axis.text.y = element_blank()) +
+  xlab("EpiTrace (balanced)")
+
+pp2_orig <- ggplot(brain_meta_orig,
+                   aes(y = celltype, x = cytotrace_rna)) +
+  geom_violin(scale = "width", aes(fill = celltype), alpha = 0.8) +
+  geom_boxplot(width = 0.15, outlier.alpha = 0, fill = "black") +
+  scale_fill_manual(values = colorlist) +
+  scale_y_discrete(limits = names(colorlist)) +
+  scale_x_reverse() +
+  theme_classic() +
+  theme(text = element_text(size = 14), legend.position = "none",
+        axis.title.y = element_blank(), axis.text.y = element_blank()) +
+  xlab("CytoTRACE (original RNA)")
+
+pp2_bal <- ggplot(brain_meta_bal,                          # recomputed score
+                  aes(y = celltype, x = cytotrace_rna_balanced)) +
+  geom_violin(scale = "width", aes(fill = celltype), alpha = 0.8) +
+  geom_boxplot(width = 0.15, outlier.alpha = 0, fill = "black") +
+  scale_fill_manual(values = colorlist) +
+  scale_y_discrete(limits = names(colorlist)) +
+  scale_x_reverse() +
+  theme_classic() +
+  theme(text = element_text(size = 14), legend.position = "none",
+        axis.title.y = element_blank(), axis.text.y = element_blank()) +
+  xlab("CytoTRACE (balanced RNA)")
+
+pdf("/projectnb/ds596/students/jishan/Plots/Comparison_Figure6i_Original_vs_Balanced_Up09.pdf",
+    height = 9, width = 16)
+pp1_orig | pp1_bal | pp2_orig | pp2_bal
+dev.off()
+
+# ── Figure 6g/6h equivalent ──────────────────────────────────────────────────
+
+nIPC_orig_df       <- epitrace_obj_age_estimated_multiome@meta.data[
+  epitrace_obj_age_estimated_multiome$seurat_clusters %in% c("c0","c3"), ]
+nIPC_orig_df$class <- ifelse(
+  nIPC_orig_df$seurat_clusters == "c0", "NR2F1+", "LMO3+")
+
+subset(epitrace_obj_age_balanced,
+       seurat_clusters %in% c("c3","c0","c11","c9","c5","c8")) -> tt1_bal
+tt1_bal$class <- ifelse(
+  tt1_bal$seurat_clusters %in% c("c0","c11","c5","c9"), "NR2F1+", "LMO3+")
+nIPC_bal_df <- tt1_bal@meta.data[
+  tt1_bal$seurat_clusters %in% c("c0","c3"), ]
+
+my_comparision <- list(c("LMO3+","NR2F1+"))
+
+make_gh_plot <- function(df, y_col, y_label, title_label) {
+  ggplot(df, aes(x = class, y = .data[[y_col]])) +
+    geom_violin(aes(fill = class)) +
+    ggbeeswarm::geom_beeswarm(size = 3, pch = 21) +
+    geom_boxplot(outlier.alpha = 0, width = 0.3, fill = "gray") +
+    ggpubr::stat_compare_means(comparisons = my_comparision, label = "p.signif") +
+    stat_compare_means(label.y = 1.2, size = 5) +
+    ggsci::scale_fill_jco() +
+    theme_classic() +
+    theme(text = element_text(size = 20), axis.title.x = element_blank()) +
+    ylab(y_label) + ggtitle(title_label)
+}
+
+p_age_orig <- make_gh_plot(nIPC_orig_df, "EpiTraceAge_iterative",
+                           "EpiTrace Age",     "Age — Original")
+p_cyt_orig <- make_gh_plot(nIPC_orig_df, "cytotrace_rna",
+                           "CytoTRACE by RNA", "Stemness — Original")
+p_age_bal  <- make_gh_plot(nIPC_bal_df,  "EpiTraceAge_iterative",
+                           "EpiTrace Age",     "Age — Balanced")
+p_cyt_bal  <- make_gh_plot(nIPC_bal_df,  "cytotrace_rna_balanced",   # recomputed
+                           "CytoTRACE by RNA", "Stemness — Balanced")
+
+pdf("/projectnb/ds596/students/jishan/Plots/Comparison_Figure6gh_Original_vs_Balanced_Up09.pdf",
+    height = 5, width = 18)
+(p_age_orig | p_cyt_orig | p_age_bal | p_cyt_bal) + plot_layout(guides = "collect")
+dev.off()
+
+# ── Figure 6j equivalent: phylogeny tree ─────────────────────────────────────
+
+DefaultAssay(epitrace_obj_age_balanced) <- "all"
+Idents(epitrace_obj_age_balanced)       <- epitrace_obj_age_balanced$celltype
+
+phylores_bal <- RunEpiTracePhylogeny(
+  subset(epitrace_obj_age_balanced,
+         subset = celltype %in% c("RG","nIPC/GluN1","GluN2","GluN3",
+                                  "GluN4","GluN5","SP"))
+)
+
+data.tree_bal <- phylores_bal[["iterative"]][[2]]
+data.tree_bal <- ape::root(data.tree_bal, outgroup = "RG")
+xmax_bal      <- max(ggtree(data.tree_bal)$data$branch.length, na.rm = TRUE) * 1.4
+
+tree_plot_bal <- ggtree(data.tree_bal, layout = "rectangular", ladderize = FALSE) +
+  geom_tiplab(color = "black", size = 5, offset = 40) +
+  geom_tippoint(aes(fill = label, color = label), size = 7) +
+  scale_color_manual(values = colors2) +
+  xlim(c(NA, xmax_bal))
+
+pdf("/projectnb/ds596/students/jishan/Plots/Comparison_Figure6j_Balanced_Tree_Up09.pdf",
+    width = 6, height = 3)
+print(tree_plot_bal)
+dev.off()
+
+# ── Cell-type count table ─────────────────────────────────────────────────────
+
+ct_before <- as.data.frame(
+  table(epitrace_obj_age_estimated_multiome$celltype), stringsAsFactors = FALSE)
+colnames(ct_before) <- c("celltype", "n_before")
+
+ct_after  <- as.data.frame(
+  table(epitrace_obj_age_balanced$celltype), stringsAsFactors = FALSE)
+colnames(ct_after)  <- c("celltype", "n_after")
+
+ct_comparison <- merge(ct_before, ct_after, by = "celltype", all = TRUE)
+ct_comparison$n_before[is.na(ct_comparison$n_before)] <- 0
+ct_comparison$n_after [is.na(ct_comparison$n_after)]  <- 0
+ct_comparison$cells_removed <- ct_comparison$n_before - ct_comparison$n_after
+ct_comparison$pct_retained  <- round(
+  100 * ct_comparison$n_after / ct_comparison$n_before, 1)
+ct_comparison <- ct_comparison[order(-ct_comparison$n_before), ]
+
+print(ct_comparison, row.names = FALSE)
+message(sprintf("Total before: %d", sum(ct_comparison$n_before)))
+message(sprintf("Total after : %d", sum(ct_comparison$n_after)))
+
+# Summarise the finding cleanly 
+message(sprintf("Cells in original run : %d", ncol(epitrace_obj_age_estimated_multiome)))
+message(sprintf("Cells in balanced run : %d", ncol(epitrace_obj_age_balanced)))
+
+
+# Build per-cell age comparison dataframe 
+
+age_orig_df <- data.frame(
+  original_cell = epitrace_obj_age_estimated_multiome$cell,
+  age_original  = epitrace_obj_age_estimated_multiome$EpiTraceAge_iterative,
+  celltype      = epitrace_obj_age_estimated_multiome$celltype,
+  stringsAsFactors = FALSE
+)
+
+age_bal_df <- data.frame(
+  original_cell = epitrace_obj_age_balanced$original_cell,
+  age_balanced  = epitrace_obj_age_balanced$EpiTraceAge_iterative,
+  stringsAsFactors = FALSE
+)
+
+# For duplicated cells, average their balanced ages back to one value per original cell
+age_bal_agg <- aggregate(age_balanced ~ original_cell, data = age_bal_df, FUN = mean)
+
+age_compare <- merge(age_orig_df, age_bal_agg, by = "original_cell", all.x = FALSE)
+
+message(sprintf("Cells in age_compare: %d", nrow(age_compare)))
+message(sprintf("NAs in age_original : %d", sum(is.na(age_compare$age_original))))
+message(sprintf("NAs in age_balanced : %d", sum(is.na(age_compare$age_balanced))))
+
+message(sprintf("Pearson  r (original vs balanced EpiTrace age) : %.3f",
+                cor(age_compare$age_original, age_compare$age_balanced,
+                    use = "complete.obs")))
+message(sprintf("Spearman r (original vs balanced EpiTrace age) : %.3f",
+                cor(age_compare$age_original, age_compare$age_balanced,
+                    use = "complete.obs", method = "spearman")))
+
+# Check whether cell-type rank ordering is preserved even if absolute scores shift
+ct_median_orig <- tapply(age_compare$age_original, age_compare$celltype, median)
+ct_median_bal  <- tapply(age_compare$age_balanced,  age_compare$celltype, median)
+message(sprintf("Pearson r of per-cell-type median ages : %.3f",
+                cor(ct_median_orig, ct_median_bal, use = "complete.obs")))
+
+# Per-cell-type median EpiTrace age: scatter original vs balanced
+ct_median_df <- data.frame(
+  celltype   = names(ct_median_orig),
+  age_orig   = as.numeric(ct_median_orig),
+  age_bal    = as.numeric(ct_median_bal[names(ct_median_orig)])
+)
+
+p_median_scatter <- ggplot(ct_median_df,
+                           aes(x = age_orig, y = age_bal, colour = celltype)) +
+  geom_point(size = 5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "gray40") +
+  ggrepel::geom_label_repel(aes(label = celltype), size = 3.5, show.legend = FALSE) +
+  scale_colour_manual(values = colorlist) +
+  annotate("text", x = -Inf, y = Inf, hjust = -0.1, vjust = 1.5, size = 4,
+           label = sprintf("r = %.3f", cor(ct_median_df$age_orig,
+                                           ct_median_df$age_bal,
+                                           use = "complete.obs"))) +
+  theme_classic() +
+  theme(text = element_text(size = 14), legend.position = "none") +
+  labs(title = "Per-cell-type median EpiTrace age: original vs balanced",
+       x = "Median age (original)", y = "Median age (balanced)")
+
+pdf("/projectnb/ds596/students/jishan/Plots/Comparison_median_age_scatter_Up09.pdf",
+    height = 5, width = 6)
+print(p_median_scatter)
+dev.off()
+
+
+
+# check how many cells were dropped by EpiTrace convergence step: 
+
+message(sprintf("Cells fed into EpiTrace  : %d", ncol(mtx_balanced)))
+message(sprintf("Cells EpiTrace kept      : %d", ncol(epitrace_obj_age_balanced)))
+
+message(sprintf("original total number of cells before balancing      : %d", nrow(age_orig_df)))
+
+print("Number of original cells that have both an original EpiTrace age AND a balanced EpiTrace age to compare: ")
+message(sprintf("Rows after merge         : %d", nrow(age_compare)))
+
+# age_compare is just age_bal_agg with cols original age and celltype added from age_orig_df.
+
+# Which original cells dropped out?
+dropped <- setdiff(age_orig_df$original_cell, age_bal_agg$original_cell)
+message(sprintf("Original cells with no balanced age and was dropped due to downsampling: %d", length(dropped)))
+print("distribution of cells dropped per cell type:")
+print(table(age_orig_df$celltype[age_orig_df$original_cell %in% dropped]))
+
+
+# ── Per-cell-type median CytoTRACE: original vs balanced ─────────────────────
+
+# Build cytotrace comparison dataframe (mirrors age_compare construction)
+cyto_orig_df <- data.frame(
+  original_cell  = epitrace_obj_age_estimated_multiome$cell,
+  cyto_original  = epitrace_obj_age_estimated_multiome$cytotrace_rna,
+  celltype       = epitrace_obj_age_estimated_multiome$celltype,
+  stringsAsFactors = FALSE
+)
+
+cyto_bal_df <- data.frame(
+  original_cell  = epitrace_obj_age_balanced$original_cell,
+  cyto_balanced  = epitrace_obj_age_balanced$cytotrace_rna_balanced,
+  stringsAsFactors = FALSE
+)
+
+# Aggregate duplicates back to one value per original cell
+cyto_bal_agg <- aggregate(cyto_balanced ~ original_cell, data = cyto_bal_df, FUN = mean)
+
+cyto_compare <- merge(cyto_orig_df, cyto_bal_agg, by = "original_cell", all.x = FALSE)
+
+message(sprintf("Cells in cyto_compare: %d", nrow(cyto_compare)))
+message(sprintf("NAs in cyto_original : %d", sum(is.na(cyto_compare$cyto_original))))
+message(sprintf("NAs in cyto_balanced : %d", sum(is.na(cyto_compare$cyto_balanced))))
+
+# ── Per-cell-type medians ─────────────────────────────────────────────────────
+
+ct_median_cyto_orig <- tapply(cyto_compare$cyto_original, cyto_compare$celltype, median, na.rm = TRUE)
+ct_median_cyto_bal  <- tapply(cyto_compare$cyto_balanced,  cyto_compare$celltype, median, na.rm = TRUE)
+
+message(sprintf("Pearson r of per-cell-type median CytoTRACE : %.3f",
+                cor(ct_median_cyto_orig, ct_median_cyto_bal, use = "complete.obs")))
+
+# ── Build scatter dataframe ───────────────────────────────────────────────────
+
+ct_median_cyto_df <- data.frame(
+  celltype  = names(ct_median_cyto_orig),
+  cyto_orig = as.numeric(ct_median_cyto_orig),
+  cyto_bal  = as.numeric(ct_median_cyto_bal[names(ct_median_cyto_orig)])
+)
+
+# ── Plot ──────────────────────────────────────────────────────────────────────
+
+p_median_cyto_scatter <- ggplot(ct_median_cyto_df,
+                                aes(x = cyto_orig, y = cyto_bal, colour = celltype)) +
+  geom_point(size = 5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "gray40") +
+  ggrepel::geom_label_repel(aes(label = celltype), size = 3.5, show.legend = FALSE) +
+  scale_colour_manual(values = colorlist) +
+  annotate("text", x = -Inf, y = Inf, hjust = -0.1, vjust = 1.5, size = 4,
+           label = sprintf("r = %.3f", cor(ct_median_cyto_df$cyto_orig,
+                                           ct_median_cyto_df$cyto_bal,
+                                           use = "complete.obs"))) +
+  theme_classic() +
+  theme(text = element_text(size = 14), legend.position = "none") +
+  labs(title = "Per-cell-type median CytoTRACE: original vs balanced",
+       x = "Median CytoTRACE (original)", y = "Median CytoTRACE (balanced)")
+
+pdf("/projectnb/ds596/students/jishan/Plots/Comparison_median_cytotrace_scatter_Up09.pdf",
+    height = 5, width = 6)
+print(p_median_cyto_scatter)
+dev.off()
+
+message("CytoTRACE median scatter saved.")
+
+
+
+# ------------visualizing cell type rebalanced distribution -----------------
+
+# ── Cell type composition change visualization ────────────────────────────────
+
+ct_before <- as.data.frame(table(epitrace_obj_age_estimated_multiome$celltype), 
+                           stringsAsFactors = FALSE)
+ct_after  <- as.data.frame(table(epitrace_obj_age_balanced$celltype),            
+                           stringsAsFactors = FALSE)
+colnames(ct_before) <- c("celltype", "n_original")
+colnames(ct_after)  <- c("celltype", "n_balanced")
+
+ct_comp <- merge(ct_before, ct_after, by = "celltype", all = TRUE)
+ct_comp$pct_original <- round(100 * ct_comp$n_original / sum(ct_comp$n_original), 1)
+ct_comp$pct_balanced <- round(100 * ct_comp$n_balanced / sum(ct_comp$n_balanced), 1)
+ct_comp$change       <- ct_comp$n_balanced - ct_comp$n_original
+ct_comp$action       <- ifelse(ct_comp$n_balanced > ct_comp$n_original, "upsampled",
+                               ifelse(ct_comp$n_balanced < ct_comp$n_original, "downsampled", "unchanged"))
+ct_comp <- ct_comp[order(-ct_comp$n_original), ]
+
+# ── Long format for side-by-side bar plot ─────────────────────────────────────
+
+ct_long <- rbind(
+  data.frame(celltype = ct_comp$celltype, n = ct_comp$n_original, run = "Original",  stringsAsFactors = FALSE),
+  data.frame(celltype = ct_comp$celltype, n = ct_comp$n_balanced, run = "Balanced",  stringsAsFactors = FALSE)
+)
+ct_long$celltype <- factor(ct_long$celltype, levels = ct_comp$celltype)
+ct_long$run      <- factor(ct_long$run, levels = c("Original", "Balanced"))
+
+# ── Plot 1: side-by-side bar chart ────────────────────────────────────────────
+
+p_bar <- ggplot(ct_long, aes(x = celltype, y = n, fill = run)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(aes(label = n), position = position_dodge(width = 0.7),
+            vjust = -0.4, size = 3) +
+  scale_fill_manual(values = c("Original" = "steelblue", "Balanced" = "tomato")) +
+  theme_classic() +
+  theme(text = element_text(size = 13),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.title = element_blank()) +
+  labs(title = "Cell counts: original vs balanced",
+       x = NULL, y = "Number of cells")
+
+# ── Plot 2: percent composition stacked bar ───────────────────────────────────
+
+pct_long <- rbind(
+  data.frame(celltype = ct_comp$celltype, pct = ct_comp$pct_original, 
+             run = "Original", stringsAsFactors = FALSE),
+  data.frame(celltype = ct_comp$celltype, pct = ct_comp$pct_balanced, 
+             run = "Balanced", stringsAsFactors = FALSE)
+)
+pct_long$celltype <- factor(pct_long$celltype, levels = rev(ct_comp$celltype))
+pct_long$run      <- factor(pct_long$run, levels = c("Original", "Balanced"))
+
+p_pct <- ggplot(pct_long, aes(x = run, y = pct, fill = celltype)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  geom_text(aes(label = paste0(pct, "%")),
+            position = position_stack(vjust = 0.5), size = 3) +
+  scale_fill_manual(values = colorlist) +
+  theme_classic() +
+  theme(text = element_text(size = 13), legend.title = element_blank()) +
+  labs(title = "Composition: original vs balanced",
+       x = NULL, y = "Percentage of cells")
+
+pdf("/projectnb/ds596/students/jishan/Plots/CellType_Rebalancing_Summary_Up09.pdf",
+    height = 14, width = 16)
+(p_bar | p_pct) 
+dev.off()
+
+
+message("\n═══ CELL TYPE COUNTS ═══")
+ct_before <- as.data.frame(table(epitrace_obj_age_estimated_multiome$celltype), stringsAsFactors = FALSE)
+ct_after  <- as.data.frame(table(epitrace_obj_age_balanced$celltype),            stringsAsFactors = FALSE)
+colnames(ct_before) <- c("celltype", "n_original")
+colnames(ct_after)  <- c("celltype", "n_balanced")
+ct_comp <- merge(ct_before, ct_after, by = "celltype", all = TRUE)
+ct_comp$pct_original <- round(100 * ct_comp$n_original / sum(ct_comp$n_original), 1)
+ct_comp$pct_balanced <- round(100 * ct_comp$n_balanced / sum(ct_comp$n_balanced), 1)
+ct_comp <- ct_comp[order(-ct_comp$n_original), ]
+print(ct_comp, row.names = FALSE)
+
+
+# ── 2. Figure 6i equivalent: per-cell-type EpiTrace and CytoTRACE summaries ──
+
+message("\n═══ FIG 6i — PER CELL TYPE EPITRACE AGE SUMMARY ═══")
+message("--- Original ---")
+epitrace_orig_summary <- tapply(
+  epitrace_obj_age_estimated_multiome$EpiTraceAge_iterative,
+  epitrace_obj_age_estimated_multiome$celltype,
+  function(x) c(median = round(median(x, na.rm=T), 4),
+                mean   = round(mean(x,   na.rm=T), 4),
+                sd     = round(sd(x,     na.rm=T), 4),
+                n      = sum(!is.na(x)))
+)
+print(do.call(rbind, epitrace_orig_summary))
+
+message("--- Balanced ---")
+epitrace_bal_summary <- tapply(
+  epitrace_obj_age_balanced$EpiTraceAge_iterative,
+  epitrace_obj_age_balanced$celltype,
+  function(x) c(median = round(median(x, na.rm=T), 4),
+                mean   = round(mean(x,   na.rm=T), 4),
+                sd     = round(sd(x,     na.rm=T), 4),
+                n      = sum(!is.na(x)))
+)
+print(do.call(rbind, epitrace_bal_summary))
+
+message("\n═══ FIG 6i — PER CELL TYPE CYTOTRACE SUMMARY ═══")
+message("--- Original ---")
+cyto_orig_summary <- tapply(
+  epitrace_obj_age_estimated_multiome$cytotrace_rna,
+  epitrace_obj_age_estimated_multiome$celltype,
+  function(x) c(median = round(median(x, na.rm=T), 4),
+                mean   = round(mean(x,   na.rm=T), 4),
+                sd     = round(sd(x,     na.rm=T), 4),
+                n      = sum(!is.na(x)))
+)
+print(do.call(rbind, cyto_orig_summary))
+
+message("--- Balanced ---")
+cyto_bal_summary <- tapply(
+  epitrace_obj_age_balanced$cytotrace_rna_balanced,
+  epitrace_obj_age_balanced$celltype,
+  function(x) c(median = round(median(x, na.rm=T), 4),
+                mean   = round(mean(x,   na.rm=T), 4),
+                sd     = round(sd(x,     na.rm=T), 4),
+                n      = sum(!is.na(x)))
+)
+print(do.call(rbind, cyto_bal_summary))
+
+
+# ── 3. Figure 6g/6h equivalent: nIPC population comparison ───────────────────
+
+message("\n═══ FIG 6g/6h — nIPC POPULATION EPITRACE AGE ═══")
+
+nIPC_orig_df$class <- ifelse(nIPC_orig_df$seurat_clusters == "c0", "NR2F1+", "LMO3+")
+nIPC_bal_df        <- epitrace_obj_age_balanced@meta.data[
+  epitrace_obj_age_balanced$seurat_clusters %in% c("c0","c3"), ]
+nIPC_bal_df$class  <- ifelse(nIPC_bal_df$seurat_clusters == "c0", "NR2F1+", "LMO3+")
+
+message("--- EpiTrace Age: Original ---")
+print(tapply(nIPC_orig_df$EpiTraceAge_iterative, nIPC_orig_df$class,
+             function(x) c(median=round(median(x,na.rm=T),4),
+                           mean=round(mean(x,na.rm=T),4),
+                           sd=round(sd(x,na.rm=T),4),
+                           n=sum(!is.na(x)))) %>% do.call(rbind,.))
+
+message("--- EpiTrace Age: Balanced ---")
+print(tapply(nIPC_bal_df$EpiTraceAge_iterative, nIPC_bal_df$class,
+             function(x) c(median=round(median(x,na.rm=T),4),
+                           mean=round(mean(x,na.rm=T),4),
+                           sd=round(sd(x,na.rm=T),4),
+                           n=sum(!is.na(x)))) %>% do.call(rbind,.))
+
+message("\n═══ FIG 6g/6h — nIPC POPULATION CYTOTRACE ═══")
+
+message("--- CytoTRACE: Original ---")
+print(tapply(nIPC_orig_df$cytotrace_rna, nIPC_orig_df$class,
+             function(x) c(median=round(median(x,na.rm=T),4),
+                           mean=round(mean(x,na.rm=T),4),
+                           sd=round(sd(x,na.rm=T),4),
+                           n=sum(!is.na(x)))) %>% do.call(rbind,.))
+
+message("--- CytoTRACE: Balanced ---")
+print(tapply(nIPC_bal_df$cytotrace_rna_balanced, nIPC_bal_df$class,
+             function(x) c(median=round(median(x,na.rm=T),4),
+                           mean=round(mean(x,na.rm=T),4),
+                           sd=round(sd(x,na.rm=T),4),
+                           n=sum(!is.na(x)))) %>% do.call(rbind,.))
+
+message("\n--- Wilcoxon test p-values ---")
+message(sprintf("EpiTrace Age original  (NR2F1+ vs LMO3+): p = %.4e",
+                wilcox.test(EpiTraceAge_iterative ~ class, data = nIPC_orig_df)$p.value))
+message(sprintf("EpiTrace Age balanced  (NR2F1+ vs LMO3+): p = %.4e",
+                wilcox.test(EpiTraceAge_iterative ~ class, data = nIPC_bal_df)$p.value))
+message(sprintf("CytoTRACE original     (NR2F1+ vs LMO3+): p = %.4e",
+                wilcox.test(cytotrace_rna ~ class,         data = nIPC_orig_df)$p.value))
+message(sprintf("CytoTRACE balanced     (NR2F1+ vs LMO3+): p = %.4e",
+                wilcox.test(cytotrace_rna_balanced ~ class, data = nIPC_bal_df)$p.value))
+
+
+# ── 4. Median scatter correlations ───────────────────────────────────────────
+
+message("\n═══ MEDIAN SCATTER CORRELATIONS ═══")
+
+message(sprintf("EpiTrace  Pearson  r (per cell)            : %.3f",
+                cor(age_compare$age_original,  age_compare$age_balanced,  use="complete.obs")))
+message(sprintf("EpiTrace  Spearman r (per cell)            : %.3f",
+                cor(age_compare$age_original,  age_compare$age_balanced,  use="complete.obs", method="spearman")))
+message(sprintf("EpiTrace  Pearson  r (per cell-type median): %.3f",
+                cor(ct_median_orig, ct_median_bal, use="complete.obs")))
+
+message(sprintf("CytoTRACE Pearson  r (per cell)            : %.3f",
+                cor(cyto_compare$cyto_original, cyto_compare$cyto_balanced, use="complete.obs")))
+message(sprintf("CytoTRACE Spearman r (per cell)            : %.3f",
+                cor(cyto_compare$cyto_original, cyto_compare$cyto_balanced, use="complete.obs", method="spearman")))
+message(sprintf("CytoTRACE Pearson  r (per cell-type median): %.3f",
+                cor(ct_median_cyto_orig, ct_median_cyto_bal, use="complete.obs")))
+
+message("\n--- Per cell-type median EpiTrace age table ---")
+print(data.frame(
+  celltype = names(ct_median_orig),
+  median_original = round(as.numeric(ct_median_orig), 4),
+  median_balanced = round(as.numeric(ct_median_bal[names(ct_median_orig)]), 4),
+  direction = ifelse(ct_median_bal[names(ct_median_orig)] > ct_median_orig, "up", "down")
+), row.names = FALSE)
+
+message("\n--- Per cell-type median CytoTRACE table ---")
+print(data.frame(
+  celltype = names(ct_median_cyto_orig),
+  median_original = round(as.numeric(ct_median_cyto_orig), 4),
+  median_balanced = round(as.numeric(ct_median_cyto_bal[names(ct_median_cyto_orig)]), 4),
+  direction = ifelse(ct_median_cyto_bal[names(ct_median_cyto_orig)] > ct_median_cyto_orig, "up", "down")
+), row.names = FALSE)
+
 
 
