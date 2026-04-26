@@ -327,7 +327,7 @@ combined_figure
 
 
 
-# Doing all data 
+# Doing all other data samples
 
 
 ```{r}
