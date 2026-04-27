@@ -969,6 +969,9 @@ pdf("/projectnb/ds596/students/jishan/Plots/CellType_Rebalancing_Summary.pdf",
 (p_bar | p_pct) 
 dev.off()
 
+
+# ---------------- output of numbers from figures -------------
+
 # ── 1. Cell type composition before and after balancing ──────────────────────
 
 message("\n═══ CELL TYPE COUNTS ═══")
@@ -1120,9 +1123,12 @@ print(data.frame(
 
 
 
-# ==============comparison plots of 6c,d,e,f after rebalance mixed 0.9 ==================
+# ===================comparison plots of 6c,d,e,f after rebalance mixed 0.9 ==================
+# ══════════════════════════════════════════════════════════════════════════════
+# Figures 6c,d,e,f — Original vs Balanced Comparison (fixed thresholds)
+# ══════════════════════════════════════════════════════════════════════════════
 
-# ── Set up balanced object the same way as original ──────────────────
+# ── Step 1: Set up balanced object the same way as original ──────────────────
 
 DefaultAssay(epitrace_obj_age_balanced) <- "all"
 
@@ -1133,7 +1139,7 @@ Signac::CreateChromatinAssay(
   genome       = BSgenome.Hsapiens.UCSC.hg38@seqinfo
 ) -> epitrace_obj_age_balanced[["all_chrom_assay"]]
 
-# ── LSI + UMAP on balanced object ────────────────────────────────────
+# ── Step 2: LSI + UMAP on balanced object ────────────────────────────────────
 
 DefaultAssay(epitrace_obj_age_balanced) <- "all"
 epitrace_obj_age_balanced <- RunTFIDF(epitrace_obj_age_balanced)
@@ -1150,7 +1156,7 @@ epitrace_obj_age_balanced@meta.data$umap_1 <-
 epitrace_obj_age_balanced@meta.data$umap_2 <-
   Embeddings(epitrace_obj_age_balanced, "umap")[, 2]
 
-# ── Add motifs and run chromVAR on balanced object ───────────────────
+# ── Step 3: Add motifs and run chromVAR on balanced object ───────────────────
 
 DefaultAssay(epitrace_obj_age_balanced) <- "all_chrom_assay"
 
@@ -1165,11 +1171,11 @@ epitrace_obj_age_balanced <- RunChromVAR(
   genome = BSgenome.Hsapiens.UCSC.hg38
 )
 
-# ── Set identities to seurat_clusters ────────────────────────────────
+# ── Step 4: Set identities to seurat_clusters ────────────────────────────────
 
 Idents(epitrace_obj_age_balanced) <- epitrace_obj_age_balanced$seurat_clusters
 
-# ── Differential TF activity on balanced object ──────────────────────
+# ── Step 5: Differential TF activity on balanced object ──────────────────────
 
 DefaultAssay(epitrace_obj_age_balanced) <- "all_chrom_assay"
 
@@ -1225,7 +1231,7 @@ da_with_enrich_bal$motif_origin <- ifelse(
 da_with_enrich_bal <- da_with_enrich_bal[
   !grepl(":", da_with_enrich_bal$gene_symbol), ]
 
-# ── Differential RNA expression on balanced object ───────────────────
+# ── Step 6: Differential RNA expression on balanced object ───────────────────
 
 DefaultAssay(epitrace_obj_age_balanced) <- "rna_spliced"
 epitrace_obj_age_balanced <- NormalizeData(epitrace_obj_age_balanced)
@@ -1270,7 +1276,7 @@ da_tf_with_activity_2_bal <- lapply(
       head(1)
   }) %>% bind_rows()
 
-# ── Figure 6c — compute locked thresholds from original ──────────────
+# ── Step 7: Figure 6c — compute locked thresholds from original ──────────────
 
 # Process original human motifs
 df_orig_human <- da_tf_with_activity_2[
@@ -1413,7 +1419,7 @@ pdf("/projectnb/ds596/students/jishan/Plots/Comparison_Figure6c_Original_vs_Bala
 p_6c_orig_fixed | p_6c_bal_fixed
 dev.off()
 
-# ── Figure 6d — NR2F1 TFBS chromatin accessibility ──────────────────
+# ── Step 8: Figure 6d — NR2F1 TFBS chromatin accessibility ──────────────────
 
 # UMAP feature plot function with no hardcoded axis limits
 make_umap_feature_plot <- function(obj, feature_col, title_label,
@@ -1428,7 +1434,7 @@ make_umap_feature_plot <- function(obj, feature_col, title_label,
   q10 <- quantile(values, 0.10, na.rm = TRUE)
   q90 <- quantile(values, 0.90, na.rm = TRUE)
   
-
+  # If the range collapses (e.g. >90% zeros), skip clipping entirely
   if (q10 == q90) {
     values_clipped <- values
   } else {
@@ -1477,7 +1483,7 @@ pdf("/projectnb/ds596/students/jishan/Plots/Comparison_Figure6d_Original_vs_Bala
 p_6d_orig | p_6d_bal
 dev.off()
 
-# ── Figure 6e and 6f — NR2F1 and LMO3 RNA expression ────────────────
+# ── Step 9: Figure 6e and 6f — NR2F1 and LMO3 RNA expression ────────────────
 
 p_6e_orig <- make_umap_feature_plot(
   obj         = epitrace_obj_age_estimated_multiome,
@@ -1510,7 +1516,7 @@ pdf("/projectnb/ds596/students/jishan/Plots/Comparison_Figure6ef_Original_vs_Bal
   plot_layout(guides = "collect")
 dev.off()
 
-# ── Numerical summary of top TFs in both runs ───────────────────────
+# ── Step 10: Numerical summary of top TFs in both runs ───────────────────────
 
 message("\n═══ TOP TFs IN ORIGINAL RUN (NR2F1+ enriched, human motifs) ═══")
 da_tf_with_activity_2 %>%
@@ -1546,6 +1552,26 @@ message("\nAll Figure 6c/d/e/f comparison plots saved. for mixed 0.9 rebalance")
 
 
 
+ct_long <- ct_long %>%
+  group_by(run) %>%
+  mutate(prop = n / sum(n))
+
+p_pie <- ggplot(ct_long, aes(x = "", y = prop, fill = celltype)) +
+  geom_col(width = 1) +
+  coord_polar(theta = "y") +
+  facet_wrap(~run) +
+  geom_text(aes(label = n),
+            position = position_stack(vjust = 0.5),
+            size = 3) +
+  theme_void() +
+  theme(text = element_text(size = 13),
+        strip.text = element_text(face = "bold"),
+        legend.title = element_blank()) +
+  labs(title = "Cell-type proportions: original vs balanced")
+pdf("/projectnb/ds596/students/jishan/Plots/CellType_Rebalancing_Pie_Mixed09.pdf",
+    height = 14, width = 16)
+(p_pie) 
+dev.off()
 
 
 
@@ -1561,7 +1587,14 @@ message("\nAll Figure 6c/d/e/f comparison plots saved. for mixed 0.9 rebalance")
 
 
 
-# ------------------------new round of resampling & figures for "up" alpha 0.9 -----------------------------------------
+
+
+
+
+# ------------------------new round of resampling & figures -----------------------------------------
+
+
+
 
 # ── resample 0.9 up ─────────────────────────
 epitrace_balanced_seurat <- resample_cells(
@@ -1570,14 +1603,15 @@ epitrace_balanced_seurat <- resample_cells(
   mode           = "up"
 )
 
+# Sanity check before going any further
 
 message(sprintf("Dup barcodes: %d",
                 sum(grepl("_dup[0-9]+$", colnames(epitrace_balanced_seurat)))))
 
-# ── pull the count matrix for EpiTrace ───────────────────────────────
+# ── Step 2: pull the count matrix for EpiTrace ───────────────────────────────
 mtx_balanced <- GetAssayData(epitrace_balanced_seurat, assay = "all", layer = "counts")
 
-# ── run EpiTrace  ──────────────
+# ── Step 3: run EpiTrace — result goes into a DIFFERENT variable ──────────────
 epitrace_obj_age_balanced <- EpiTraceAge_Convergence(
   initiated_peaks,
   mtx_balanced,
@@ -1603,6 +1637,7 @@ idx <- match(etrace_cells_new, colnames(mtx_balanced))
 message(sprintf("NAs in idx: %d / %d", sum(is.na(idx)), length(idx)))
 stopifnot(!any(is.na(idx)))
 
+# Diagnose what keys are actually available
 message("bal_lookup$cell sample: ", paste(head(bal_lookup$cell), collapse=", "))
 message("mtx_balanced colnames sample: ", paste(head(colnames(mtx_balanced)), collapse=", "))
 message("etrace_cells_new sample: ", paste(head(etrace_cells_new), collapse=", "))
@@ -1675,6 +1710,7 @@ message("Balanced celltype check:")
 print(table(epitrace_obj_age_balanced$celltype, useNA = "always"))
 
 
+# Also fix original object celltype from source of truth
 epitrace_obj_age_estimated_multiome$celltype <-
   cell_meta$celltype[match(epitrace_obj_age_estimated_multiome$cell, cell_meta$cell)]
 
@@ -1698,6 +1734,8 @@ epitrace_obj_age_balanced$cytotrace_rna_balanced <-
 message(sprintf("CytoTRACE recomputed: %d / %d non-NA",
                 sum(!is.na(epitrace_obj_age_balanced$cytotrace_rna_balanced)),
                 ncol(epitrace_obj_age_balanced)))
+
+# ── Shared colour palettes ───────────────────────────────────────────────────
 
 colorlist <- c(
   "GluN5"      = "cadetblue4",  "IN1"        = "#A2CD5A",
@@ -2231,6 +2269,5 @@ print(data.frame(
   median_balanced = round(as.numeric(ct_median_cyto_bal[names(ct_median_cyto_orig)]), 4),
   direction = ifelse(ct_median_cyto_bal[names(ct_median_cyto_orig)] > ct_median_cyto_orig, "up", "down")
 ), row.names = FALSE)
-
 
 
